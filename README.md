@@ -23,6 +23,8 @@ agrotech_boyaca/
 
 Detalle de módulos y decisiones: [`docs/BASE_INFRAESTRUCTURA.md`](docs/BASE_INFRAESTRUCTURA.md).
 
+Aprovisionamiento free-tier (Railway, Supabase, Upstash, R2, Firebase): [`infra/PROVISIONING.md`](infra/PROVISIONING.md).
+
 ## Prerrequisitos
 
 - **Node.js** 20+ y npm
@@ -39,7 +41,9 @@ npm run test:unit
 npm run start:dev
 ```
 
-API por defecto en `http://localhost:3000`.
+API por defecto en `http://localhost:3000`. Health: `GET /health`.
+
+Variables de entorno: copiar `backend/.env.example` → `backend/.env`.
 
 ## Mobile
 

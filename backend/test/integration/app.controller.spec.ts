@@ -17,4 +17,10 @@ describe('AppController (integration)', () => {
   it('GET / returns greeting', () => {
     expect(controller.getHello()).toBe('AgroTech Boyacá API');
   });
+
+  it('GET /health returns ok', () => {
+    const health = controller.getHealth();
+    expect(health.status).toBe('ok');
+    expect(health.service).toBe('agrotech-backend');
+  });
 });

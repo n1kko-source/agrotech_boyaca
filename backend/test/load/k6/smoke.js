@@ -17,10 +17,17 @@ export const options = {
 const BASE_URL = __ENV.BASE_URL || 'http://127.0.0.1:3000';
 
 export default function () {
-  const res = http.get(`${BASE_URL}/`);
-  check(res, {
-    'status is 200': (r) => r.status === 200,
-    'body mentions AgroTech': (r) => String(r.body).includes('AgroTech'),
+  const root = http.get(`${BASE_URL}/`);
+  check(root, {
+    'root status is 200': (r) => r.status === 200,
+    'root body mentions AgroTech': (r) => String(r.body).includes('AgroTech'),
   });
+
+  const health = http.get(`${BASE_URL}/health`);
+  check(health, {
+    'health status is 200': (r) => r.status === 200,
+    'health status ok': (r) => String(r.body).includes('"status":"ok"'),
+  });
+
   sleep(1);
 }
