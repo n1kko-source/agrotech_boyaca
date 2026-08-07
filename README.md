@@ -26,7 +26,7 @@ Detalle de módulos y decisiones: [`docs/BASE_INFRAESTRUCTURA.md`](docs/BASE_INF
 ## Prerrequisitos
 
 - **Node.js** 20+ y npm
-- **Flutter** 3.22+ (SDK en PATH) y **Android Studio** (SDK Android)
+- **Flutter** 3.44+ (SDK en PATH; CI usa 3.44.8) y **Android Studio** (SDK Android)
 - Opcional: Nest CLI (`npm i -g @nestjs/cli`)
 
 ## Backend

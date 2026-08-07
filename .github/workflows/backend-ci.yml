@@ -4,9 +4,11 @@ on:
   push:
     paths:
       - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
   pull_request:
     paths:
       - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
 
 jobs:
   lint-and-test:
@@ -32,5 +34,29 @@ jobs:
     needs: lint-and-test
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+        working-directory: backend
+      - run: npm run build
+        working-directory: backend
+      - name: Start API
+        working-directory: backend
+        run: |
+          npm run start:prod &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:3000/ >/dev/null; then
+              echo "API is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "API failed to start"
+          exit 1
       - uses: grafana/setup-k6-action@v1
       - run: k6 run backend/test/load/k6/smoke.js
+        env:
+          BASE_URL: http://127.0.0.1:3000
