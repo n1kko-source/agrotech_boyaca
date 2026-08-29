@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "co.edu.uptc.agrotech.agrotech_boyaca"
+    namespace = "co.agrotech.boyaca"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -16,7 +16,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "co.edu.uptc.agrotech.agrotech_boyaca"
+        applicationId = "co.agrotech.boyaca"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -42,4 +42,10 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+// google-services.json is gitignored (AG-12). Apply the plugin only when the
+// local file exists so CI can still build APK without Firebase client config.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
 }

@@ -1,6 +1,6 @@
 # =============================================================================
 # AgroTech Boyacá — .gitignore
-# NestJS + Flutter + Prisma + Railway / Firebase / R2
+# NestJS + Flutter + Prisma + Render / Firebase / R2
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -24,12 +24,15 @@
 *.jks
 *.keystore
 secrets/
+**/secrets/
 credentials/
 service-account*.json
-*-firebase-adminsdk-*.json
+*firebase-adminsdk*.json
 google-services.json
+**/google-services.json
 GoogleService-Info.plist
 firebase_options.dart
+**/firebase_options.dart
 **/firebase_app_id_file.json
 
 # -----------------------------------------------------------------------------
@@ -221,6 +224,7 @@ temp/
 *.temp
 .vercel
 .railway/
+.render/
 .terraform/
 *.tfstate*
 .direnv/

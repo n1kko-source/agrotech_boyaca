@@ -80,15 +80,15 @@ DTOs · Guards · Interceptors · Pipes · Throttle (Redis) · Logger · GlobalE
  
 | Capa | Servicio | Límite a monitorear |
 |---|---|---|
-| Backend NestJS | Railway | 500h/mes · sleep 30min → cron ping |
+| Backend NestJS | Render | 750h/mes · sleep 15min → cron ping 10min |
 | PostgreSQL | Supabase | 500 MB almacenamiento |
 | Redis | Upstash | **10.000 requests/día ⚠** |
 | Archivos PDF/Audio | Cloudflare R2 | 10 GB · 1M lecturas/mes |
 | OTP SMS | Firebase Authentication | 10.000 SMS/mes |
 | Push notifications | Firebase FCM | Gratuito permanente |
-| Anti-sleep | Cron-job.org → GET /health cada 25min | — |
+| Anti-sleep | Cron-job.org → GET /health cada 10min | — |
  
-**Punto de migración:** al superar ~500 usuarios activos concurrentes → Railway Pro + Supabase Pro + Upstash Pro. El código NestJS no cambia.
+**Punto de migración:** al superar ~500 usuarios activos concurrentes → Render pago (sin spin-down) + Supabase Pro + Upstash Pro. El código NestJS no cambia.
  
 ---
  

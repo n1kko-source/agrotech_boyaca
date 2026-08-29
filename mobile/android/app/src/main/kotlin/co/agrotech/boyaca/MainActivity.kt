@@ -1,4 +1,4 @@
-package co.edu.uptc.agrotech.agrotech_boyaca
+package co.agrotech.boyaca
 
 import io.flutter.embedding.android.FlutterActivity
 

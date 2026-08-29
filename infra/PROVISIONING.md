@@ -6,7 +6,7 @@ plantillas, variables y el endpoint `/health`.
 
 | Servicio | Rol | Plan |
 |----------|-----|------|
-| [Railway](https://railway.app) | Host NestJS | Free / trial hours |
+| [Render](https://render.com) | Host NestJS (Web Service) | Free (750 h/mes, sleep 15 min) |
 | [Supabase](https://supabase.com) | PostgreSQL | Free (500 MB) |
 | [Upstash](https://upstash.com) | Redis (throttle, refresh tokens) | Free (10k req/día) |
 | [Cloudflare R2](https://www.cloudflare.com/developer-platform/r2/) | PDF / audio | Free tier |
@@ -15,6 +15,7 @@ plantillas, variables y el endpoint `/health`.
 
 Detalle de límites: [`docs/BASE_INFRAESTRUCTURA.md`](../docs/BASE_INFRAESTRUCTURA.md) §5.
 Migración de tier: [`migration-notes.md`](./migration-notes.md).
+Blueprint (sin secretos): [`render.yaml`](../render.yaml).
 
 ---
 
@@ -24,9 +25,9 @@ Migración de tier: [`migration-notes.md`](./migration-notes.md).
 - [ ] Redis Upstash + `UPSTASH_REDIS_*` / `REDIS_URL`
 - [ ] Bucket R2 + API token + `R2_*`
 - [ ] Proyecto Firebase (Auth + Cloud Messaging) + service account
-- [ ] Servicio Railway (Root Directory = `backend`) + variables de entorno
-- [ ] Deploy OK → `GET https://<app>/health` responde `{"status":"ok",...}`
-- [ ] Cron cada 25 min a `/health` ([`cron-health.md`](./cron-health.md))
+- [ ] Web Service Render (Docker, root/`dockerContext` = `backend`) + variables de entorno
+- [ ] Deploy OK → `GET https://<app>.onrender.com/health` responde `{"status":"ok",...}` **en caliente** (sin página de wake-up)
+- [ ] Cron cada **10 min** a `/health` ([`cron-health.md`](./cron-health.md))
 - [ ] Secretos solo en consolas / `.env` local (nunca en git)
 
 Plantilla de variables: [`backend/.env.example`](../backend/.env.example).
@@ -41,12 +42,13 @@ Plantilla de variables: [`backend/.env.example`](../backend/.env.example).
    - Copiar URI directa (puerto `5432`) → `DIRECT_URL` (migraciones Prisma más adelante)
 3. Guardar la DB password en el gestor de secretos del equipo.
 4. No hace falta schema aún (Prisma llega en tickets posteriores).
+5. Render es IPv4: usar el **pooler** en `DATABASE_URL`. El host `db.*.supabase.co:5432` puede fallar por IPv6.
 
 ---
 
 ## 2. Upstash (Redis)
 
-1. Crear base Redis (región cercana a Railway).
+1. Crear base Redis (región cercana a Render; p. ej. US East si el Web Service está en Ohio).
 2. Copiar:
    - REST URL → `UPSTASH_REDIS_REST_URL`
    - REST TOKEN → `UPSTASH_REDIS_REST_TOKEN`
@@ -60,7 +62,7 @@ Plantilla de variables: [`backend/.env.example`](../backend/.env.example).
 1. Cloudflare Dashboard → **R2** → Create bucket (ej. `agrotech-boyaca`).
 2. **Manage R2 API Tokens** → Create API token (Object Read & Write sobre el bucket).
 3. Rellenar:
-   - `R2_ACCOUNT_ID`
+   - `R2_ACCOUNT_ID` (barra derecha del dashboard; no es el Access Key)
    - `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`
    - `R2_BUCKET`
    - `R2_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com`
@@ -74,32 +76,38 @@ Plantilla de variables: [`backend/.env.example`](../backend/.env.example).
 2. Habilitar **Authentication** → método teléfono (OTP SMS) cuando el ticket Auth lo requiera.
 3. Habilitar **Cloud Messaging** (FCM) para push Android.
 4. **Project settings → Service accounts → Generate new private key**:
-   - Usar `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` en Railway / `.env`
+   - Usar `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` en Render / `.env`
    - El JSON **no** se versiona (ver `.gitignore`)
+   - En Render **no** uses `GOOGLE_APPLICATION_CREDENTIALS` (el archivo no está en la imagen Docker)
 5. App Android: descargar `google-services.json` → `mobile/android/app/` (gitignored).
 6. No commitear `firebase_options.dart` ni service accounts.
 
 ---
 
-## 5. Railway (NestJS)
+## 5. Render (NestJS)
 
 ### Servicio
 
-1. New Project → Deploy from GitHub repo `agrotech_boyaca`.
-2. **Root Directory** = `backend` (obligatorio: Dockerfile y `railway.json` viven ahí).
-3. Builder: Dockerfile (`backend/Dockerfile`, multi-stage Node 20).
-4. Healthcheck: path `/health` (también en `backend/railway.json`).
-5. Variables: pegar desde `.env.example` con valores reales (DATABASE, Redis, R2, Firebase, `PORT=3000`).
-6. Generar dominio público → anotar `APP_PUBLIC_URL`.
+1. [dashboard.render.com](https://dashboard.render.com) → **New** → **Web Service** → repo GitHub `agrotech_boyaca`.
+2. Runtime: **Docker**.
+3. Dockerfile Path: `backend/Dockerfile` · Docker context: `backend` (el Dockerfile asume ese contexto).
+4. Instance: **Free**. Región recomendada hacia Colombia: **Ohio**.
+5. Health Check Path: `/health`.
+6. Variables: pegar desde `.env.example` con valores reales (DATABASE, Redis, R2, Firebase).
+   - **No** definas `PORT` (Render lo inyecta).
+   - **No** definas `GOOGLE_APPLICATION_CREDENTIALS`.
+7. Dominio público → `APP_PUBLIC_URL` (local y referencia del cron), p. ej. `https://agrotech-8p9b.onrender.com`.
+
+Blueprint equivalente (sin secretos): [`render.yaml`](../render.yaml) en la raíz del monorepo.
 
 ### Verificación
 
 ```bash
-curl -s https://<tu-servicio>.up.railway.app/health
+curl -sS https://<tu-servicio>.onrender.com/health
 # {"status":"ok","service":"agrotech-backend","timestamp":"..."}
 ```
 
-Copia de referencia del config: este directorio tiene `railway.json`; la **fuente canónica** para el deploy es `backend/railway.json`.
+Si responde HTML de “waking up”, el servicio hibernó: falta el cron de 10 min.
 
 ---
 
@@ -107,7 +115,7 @@ Copia de referencia del config: este directorio tiene `railway.json`; la **fuent
 
 Ver [`cron-health.md`](./cron-health.md).
 
-Resumen: `GET {APP_PUBLIC_URL}/health` cada **25 minutos** para evitar hibernación del free tier.
+Resumen: `GET {APP_PUBLIC_URL}/health` cada **10 minutos**. Render Free se duerme a los **15 min** de inactividad; 25 min no alcanza.
 
 ---
 
@@ -124,4 +132,4 @@ Resumen: `GET {APP_PUBLIC_URL}/health` cada **25 minutos** para evitar hibernaci
 - Schema Prisma / migraciones
 - Integración NestJS real con Supabase/Redis/R2/Firebase (módulos de dominio)
 - Configuración productiva de OTP templates ni campañas FCM
-- Dominio custom / TLS avanzado más allá del default de Railway
+- Dominio custom / TLS avanzado más allá del default de Render
