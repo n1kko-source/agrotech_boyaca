@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { FirebaseEmailClient } from './email/firebase-email.client';
 import { FirebaseOtpClient } from './otp/firebase-otp.client';
 import {
   OTP_CODE_GENERATOR,
@@ -23,6 +24,7 @@ import {
     OtpService,
     TokenService,
     FirebaseOtpClient,
+    FirebaseEmailClient,
     { provide: OTP_CODE_GENERATOR, useValue: randomOtpCode },
     {
       provide: USERS_REPOSITORY,

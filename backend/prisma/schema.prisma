@@ -13,15 +13,28 @@ enum Role {
   JURIDICA
 }
 
-/// Phone plaintext is never stored. `phone_enc` is pgcrypto AES-256; lookup uses HMAC.
+enum EntityType {
+  ASOCIACION
+  COOPERATIVA
+  EMPRESA
+}
+
+/// PII ciphertext is pgcrypto AES-256; lookup uses HMAC. NATURAL uses phone;
+/// JURIDICA uses email + NIT. Phone/email/NIT plaintext is never stored.
 model User {
-  id          String   @id @db.Uuid
-  role        Role     @default(NATURAL)
-  phoneEnc    Bytes    @map("phone_enc")
-  phoneHash   String   @unique @map("phone_hash")
-  firebaseUid String?  @unique @map("firebase_uid")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id          String      @id @db.Uuid
+  role        Role        @default(NATURAL)
+  phoneEnc    Bytes?      @map("phone_enc")
+  phoneHash   String?     @unique @map("phone_hash")
+  emailEnc    Bytes?      @map("email_enc")
+  emailHash   String?     @unique @map("email_hash")
+  nitEnc      Bytes?      @map("nit_enc")
+  nitHash     String?     @unique @map("nit_hash")
+  entityType  EntityType? @map("entity_type")
+  verified    Boolean     @default(false)
+  firebaseUid String?     @unique @map("firebase_uid")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
 
   @@map("users")
 }
