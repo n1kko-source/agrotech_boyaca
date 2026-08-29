@@ -1,5 +1,8 @@
 # AG-12 — Aprovisionamiento free-tier
 
+**Host canónico del backend: [Render](https://render.com)** (Web Service Docker, Free, Ohio).
+URL de producción: `https://agrotech-8p9b.onrender.com`. Es el único PaaS de la API.
+
 Guía operativa para levantar la infraestructura MVP de **AgroTech Boyacá**.
 Las cuentas y secretos los crea el equipo en cada consola; este repo solo deja
 plantillas, variables y el endpoint `/health`.
@@ -116,6 +119,36 @@ Si responde HTML de “waking up”, el servicio hibernó: falta el cron de 10 m
 Ver [`cron-health.md`](./cron-health.md).
 
 Resumen: `GET {APP_PUBLIC_URL}/health` cada **10 minutos**. Render Free se duerme a los **15 min** de inactividad; 25 min no alcanza.
+
+---
+
+## 7. CI/CD (AG-14) — GitHub Actions → Render
+
+CD despliega **solo en Render**, después de que lint/build/tests + smoke pasen en `main`.
+
+Workflow: [`.github/workflows/backend-ci.yml`](../.github/workflows/backend-ci.yml).
+
+Pendiente operativo:
+
+- [x] Secret de GitHub `RENDER_DEPLOY_HOOK_URL` (Actions → Secrets; el valor no va en git)
+- [ ] Render → Settings → **Auto-Deploy = No**
+
+| Evento | Qué corre |
+|--------|-----------|
+| Push / PR que toca `backend/**` | `lint:check` + `build` + unit + integration + e2e, luego smoke k6 |
+| Push a `main` (tras quality + smoke OK) | `POST` al Deploy Hook de Render |
+
+El estado del job **Lint, build & tests** es el check visible en el PR (no hace falta un bot de comentarios).
+
+### Secretos de GitHub
+
+1. Render Dashboard → tu Web Service → **Settings → Deploy Hook** → copiar URL.
+2. GitHub → repo → **Settings → Secrets and variables → Actions** → New repository secret:
+   - Nombre: `RENDER_DEPLOY_HOOK_URL`
+   - Valor: la URL del hook (es secreta; si se filtra, **Regenerate Hook** en Render).
+3. Render → Settings → **Auto-Deploy = No**. Si queda en Yes, Render despliega el merge *antes* de que CI termine (y el hook dispara un segundo deploy). El pipeline es el único que debe shippear.
+
+El job de deploy usa el environment `production` de GitHub (se crea solo en el primer run). No requiere reviewers a menos que los actives.
 
 ---
 

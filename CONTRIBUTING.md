@@ -20,7 +20,9 @@ hotfix/AG-40-sync-crash
 chore/AG-11-editorconfig
 ```
 
-Flujo recomendado: ramificar desde `main` → PR → merge a `main`.
+Flujo recomendado: ramificar desde `main` → PR → merge a `main`. Host de la API: **Render** (`https://agrotech-8p9b.onrender.com`).
+
+El check **Lint, build & tests** del workflow `Backend CI` se reporta en el PR (éxito/fallo). Conviene marcarlo como required en GitHub → Settings → Branches → Protect `main`. No marcar **Deploy to Render** como required: en PRs ese job se omite a propósito.
 
 ## Commits
 
@@ -60,8 +62,8 @@ Cuerpo opcional tras una línea en blanco. Un commit = un cambio lógico.
 Antes de abrir PR:
 
 ```bash
-# Backend
-cd backend && npm run lint && npm run test:unit
+# Backend (CI usa lint:check, sin --fix)
+cd backend && npm run lint:check && npm run build && npm run test:unit
 
 # Mobile
 cd mobile && flutter analyze && flutter test
