@@ -1,15 +1,29 @@
 import {
   BadRequestException,
+  ConflictException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Inject,
   Injectable,
+  Logger,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Role } from '../shared/auth/role.enum';
+import { LoginJuridicaDto } from './dto/login-juridica.dto';
+import { RegisterJuridicaDto } from './dto/register-juridica.dto';
 import { SendOtpDto } from './dto/send-otp.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { normalizeEmail } from './email/email';
+import {
+  EmailAuthInvalidError,
+  EmailAuthProviderError,
+  EmailExistsError,
+} from './email/email.errors';
+import { FirebaseEmailClient } from './email/firebase-email.client';
+import { normalizeNit } from './nit/nit';
 import {
   OtpInvalidError,
   OtpProviderError,
@@ -19,14 +33,25 @@ import { OtpService, SendOtpResult } from './otp/otp.service';
 import { normalizeCoMobile, phoneLookupHash } from './phone/phone';
 import { IssuedTokens, TokenService } from './tokens/token.service';
 import { USERS_REPOSITORY } from './users/users.repository';
-import type { UsersRepository } from './users/users.repository';
+import type { AuthUser, UsersRepository } from './users/users.repository';
+
+export type RegisterJuridicaResult = {
+  registered: true;
+};
+
+export type ResendVerificationResult = {
+  sent: true;
+};
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly otp: OtpService,
     private readonly tokens: TokenService,
     private readonly config: ConfigService,
+    private readonly firebaseEmail: FirebaseEmailClient,
     @Inject(USERS_REPOSITORY) private readonly users: UsersRepository,
   ) {}
 
@@ -58,8 +83,109 @@ export class AuthService {
     }
   }
 
+  async registerJuridica(
+    dto: RegisterJuridicaDto,
+  ): Promise<RegisterJuridicaResult> {
+    const email = requireEmail(dto.email);
+    const nit = requireNit(dto.nit);
+    const entityType = dto.entityType ?? dto.entity_type;
+    if (!entityType) {
+      throw new BadRequestException('Invalid entity type');
+    }
+    const [byEmail, byNit] = await Promise.all([
+      this.users.findJuridicaByEmail(email),
+      this.users.findJuridicaByNit(nit),
+    ]);
+    if (byEmail || byNit) {
+      throw new ConflictException('Account already exists');
+    }
+
+    let signedUp: { localId: string; idToken: string };
+    try {
+      signedUp = await this.firebaseEmail.signUp(email, dto.password);
+    } catch (err) {
+      return mapEmailRegisterError(err);
+    }
+
+    try {
+      await this.users.createJuridica({
+        email,
+        nit,
+        entityType,
+        firebaseUid: signedUp.localId,
+      });
+    } catch (err) {
+      await this.compensateFirebaseSignUp(signedUp.idToken);
+      if (err instanceof ConflictException) {
+        throw err;
+      }
+      throw err;
+    }
+
+    try {
+      await this.firebaseEmail.sendEmailVerification(signedUp.idToken);
+    } catch (err) {
+      if (err instanceof EmailAuthProviderError) {
+        throw new ServiceUnavailableException(
+          'Unable to send verification email',
+        );
+      }
+      throw err;
+    }
+    return { registered: true };
+  }
+
+  async resendJuridicaVerification(
+    dto: LoginJuridicaDto,
+  ): Promise<ResendVerificationResult> {
+    const email = requireEmail(dto.email);
+    try {
+      const signedIn = await this.firebaseEmail.signIn(email, dto.password);
+      const user = await this.users.findJuridicaByEmail(email);
+      if (!user) {
+        throw new UnauthorizedException('Unauthorized');
+      }
+      if (!signedIn.emailVerified) {
+        await this.firebaseEmail.sendEmailVerification(signedIn.idToken);
+      }
+      return { sent: true };
+    } catch (err) {
+      if (err instanceof EmailAuthProviderError) {
+        throw new ServiceUnavailableException(
+          'Unable to send verification email',
+        );
+      }
+      return mapEmailLoginError(err);
+    }
+  }
+
+  async loginJuridica(dto: LoginJuridicaDto): Promise<IssuedTokens> {
+    const email = requireEmail(dto.email);
+    try {
+      const signedIn = await this.firebaseEmail.signIn(email, dto.password);
+      if (!signedIn.emailVerified) {
+        throw new ForbiddenException('Forbidden');
+      }
+      const user = await this.users.findJuridicaByEmail(email);
+      if (!user) {
+        throw new UnauthorizedException('Unauthorized');
+      }
+      if (!user.verified) {
+        throw new ForbiddenException('Forbidden');
+      }
+      return this.tokens.issue(user.id, user.role);
+    } catch (err) {
+      return mapEmailLoginError(err);
+    }
+  }
+
   async refresh(refreshToken: string): Promise<IssuedTokens> {
-    return this.tokens.rotate(refreshToken);
+    const payload = await this.tokens.takeRefresh(refreshToken);
+    const user = await this.users.findById(payload.sub);
+    if (!canRefresh(user, payload.role)) {
+      throw new UnauthorizedException('Unauthorized');
+    }
+    return this.tokens.issue(user.id, user.role);
   }
 
   private hashPhone(phoneE164: string): string {
@@ -69,6 +195,24 @@ export class AuthService {
     }
     return phoneLookupHash(phoneE164, pepper || 'dev-pepper');
   }
+
+  private async compensateFirebaseSignUp(idToken: string): Promise<void> {
+    try {
+      await this.firebaseEmail.deleteAccount(idToken);
+    } catch {
+      this.logger.error('Failed to delete Firebase user after persist error');
+    }
+  }
+}
+
+function canRefresh(user: AuthUser | null, role: Role): user is AuthUser {
+  if (!user || user.role !== role) {
+    return false;
+  }
+  if (user.role === Role.JURIDICA && !user.verified) {
+    return false;
+  }
+  return true;
 }
 
 function requirePhone(raw: string): string {
@@ -77,6 +221,22 @@ function requirePhone(raw: string): string {
     throw new BadRequestException('Invalid phone');
   }
   return phone;
+}
+
+function requireEmail(raw: string): string {
+  const email = normalizeEmail(raw);
+  if (!email) {
+    throw new BadRequestException('Invalid email');
+  }
+  return email;
+}
+
+function requireNit(raw: string): string {
+  const nit = normalizeNit(raw);
+  if (!nit) {
+    throw new BadRequestException('Invalid nit');
+  }
+  return nit;
 }
 
 function mapOtpSendError(err: unknown): never {
@@ -94,6 +254,26 @@ function mapOtpSendError(err: unknown): never {
 
 function mapOtpVerifyError(err: unknown): never {
   if (err instanceof OtpInvalidError || err instanceof OtpProviderError) {
+    throw new UnauthorizedException('Unauthorized');
+  }
+  throw err;
+}
+
+function mapEmailRegisterError(err: unknown): never {
+  if (err instanceof EmailExistsError) {
+    throw new ConflictException('Account already exists');
+  }
+  if (err instanceof EmailAuthProviderError) {
+    throw new ServiceUnavailableException('Unable to register account');
+  }
+  throw err;
+}
+
+function mapEmailLoginError(err: unknown): never {
+  if (
+    err instanceof EmailAuthInvalidError ||
+    err instanceof EmailAuthProviderError
+  ) {
     throw new UnauthorizedException('Unauthorized');
   }
   throw err;

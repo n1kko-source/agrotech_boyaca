@@ -7,8 +7,10 @@ import { pemFromEnv } from '../../shared/config/pem';
 import { KV_STORE } from '../../shared/redis/kv-store';
 import type { KvStore } from '../../shared/redis/kv-store';
 
-export const REFRESH_TTL_SECONDS = 7 * 24 * 60 * 60;
+export const REFRESH_TTL_NATURAL_SECONDS = 7 * 24 * 60 * 60;
+export const REFRESH_TTL_JURIDICA_SECONDS = 30 * 24 * 60 * 60;
 export const ACCESS_TTL_NATURAL_SECONDS = 15 * 60;
+export const ACCESS_TTL_JURIDICA_SECONDS = 60 * 60;
 const REFRESH_PREFIX = 'agrotech:refresh:';
 
 export type IssuedTokens = {
@@ -18,7 +20,7 @@ export type IssuedTokens = {
   tokenType: 'Bearer';
 };
 
-type RefreshPayload = {
+export type RefreshPayload = {
   sub: string;
   role: Role;
 };
@@ -36,29 +38,35 @@ export class TokenService {
     if (!privateKey) {
       throw new UnauthorizedException('Unauthorized');
     }
+    const accessTtl = accessTtlSeconds(role);
     const accessToken = await this.jwt.signAsync(
       { sub, role, jti: randomUUID() },
       {
         algorithm: 'RS256',
         privateKey,
-        expiresIn: ACCESS_TTL_NATURAL_SECONDS,
+        expiresIn: accessTtl,
       },
     );
     const refreshToken = randomBytes(32).toString('base64url');
     await this.kv.set(
       refreshKey(refreshToken),
       JSON.stringify({ sub, role } satisfies RefreshPayload),
-      REFRESH_TTL_SECONDS,
+      refreshTtlSeconds(role),
     );
     return {
       accessToken,
       refreshToken,
-      expiresIn: ACCESS_TTL_NATURAL_SECONDS,
+      expiresIn: accessTtl,
       tokenType: 'Bearer',
     };
   }
 
   async rotate(refreshToken: string): Promise<IssuedTokens> {
+    const payload = await this.takeRefresh(refreshToken);
+    return this.issue(payload.sub, payload.role);
+  }
+
+  async takeRefresh(refreshToken: string): Promise<RefreshPayload> {
     const raw = await this.kv.get(refreshKey(refreshToken));
     if (!raw) {
       throw new UnauthorizedException('Unauthorized');
@@ -68,8 +76,20 @@ export class TokenService {
     if (!payload) {
       throw new UnauthorizedException('Unauthorized');
     }
-    return this.issue(payload.sub, payload.role);
+    return payload;
   }
+}
+
+function accessTtlSeconds(role: Role): number {
+  return role === Role.JURIDICA
+    ? ACCESS_TTL_JURIDICA_SECONDS
+    : ACCESS_TTL_NATURAL_SECONDS;
+}
+
+function refreshTtlSeconds(role: Role): number {
+  return role === Role.JURIDICA
+    ? REFRESH_TTL_JURIDICA_SECONDS
+    : REFRESH_TTL_NATURAL_SECONDS;
 }
 
 export function hashRefreshToken(token: string): string {

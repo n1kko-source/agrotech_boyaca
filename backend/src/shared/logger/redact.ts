@@ -66,6 +66,9 @@ export const PINO_REDACT_PATHS = [
   '*.accessToken',
   'req.body.phone',
   'req.body.code',
+  'req.body.email',
+  'req.body.password',
+  'req.body.nit',
   'req.body.recaptchaToken',
   'req.body.playIntegrityToken',
 ];

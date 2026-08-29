@@ -76,9 +76,16 @@ Plantilla de variables: [`backend/.env.example`](../backend/.env.example).
 ## 4. Firebase (OTP + FCM)
 
 1. Crear proyecto Firebase (mismo nombre org. que AgroTech).
-2. Habilitar **Authentication** → método **Phone** (OTP SMS). Copiar el **Web API key** (Project settings → General) → `FIREBASE_WEB_API_KEY`.
+2. Habilitar **Authentication** → métodos **Phone** (OTP SMS, NATURAL) y **Email/Password** (JURIDICA). Copiar el **Web API key** (Project settings → General) → `FIREBASE_WEB_API_KEY`.
    - Android: Play Integrity (SHA-256 del package) para que `POST /auth/otp/send` pueda reenviar el `playIntegrityToken`.
    - Números de prueba en Authentication → Sign-in method → Phone (staging, sin SMS real).
+   - Plantilla de verificación de email en Authentication → Templates (idioma `es`). `POST /auth/register/juridica` llama `accounts:signUp` + `accounts:sendOobCode` (VERIFY_EMAIL). Si el INSERT en Postgres falla, se borra el usuario de Firebase (`accounts:delete`). El login exige email verificado en Firebase **y** `verified = true` en Postgres (activación tras revisión documental).
+   - Reenvío: `POST /auth/register/juridica/resend` `{ email, password }`.
+   - Activar cuenta (HMAC del email, sin SQL con plaintext): desde `backend/`
+     ```bash
+     npm run auth:verify-juridica -- coop@example.com
+     ```
+     Requiere `DATABASE_URL` y `PII_HASH_PEPPER`. Sale `verified` (0) o `not found` (2). `POST /auth/refresh` rechaza si `verified` pasa a `false`.
 3. Habilitar **Cloud Messaging** (FCM) para push Android.
 4. **Project settings → Service accounts → Generate new private key**:
    - Usar `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` en Render / `.env`

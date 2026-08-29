@@ -35,7 +35,8 @@ Marketplace ecosistémico agrícola para el departamento de Boyacá, Colombia. C
 | Rol | Descripción | Autenticación |
 |---|---|---|
 | NATURAL | Campesino individual, productor | OTP SMS → JWT |
-| JURIDICA | Asociación, cooperativa, empresa compradora | OTP SMS → JWT |
+| JURIDICA | Asociación, cooperativa, empresa compradora | Email/password → JWT |
+
  
 > Empresa **no es un rol independiente**. Es `entity_type: 'empresa'` dentro del perfil JURIDICA.
  
@@ -108,7 +109,7 @@ DTOs · Guards · Interceptors · Pipes · Throttle (Redis) · Logger · GlobalE
 ## 6. Seguridad y cumplimiento
  
 - **Ley 1581 (Habeas Data):** datos sensibles (teléfono, NIT, email) cifrados en reposo con pgcrypto AES-256. Nunca en logs. Dumps de Postgres en R2 (`backups/`) son PII; bucket privado.
-- **JWT:** firmados RS256 (clave asimétrica). Access token 15min (NATURAL) / 60min (JURIDICA). Refresh token hasheado en Redis.
+- **JWT:** firmados RS256 (clave asimétrica). Access token 15min (NATURAL) / 60min (JURIDICA). Refresh token hasheado en Redis: 7d (NATURAL) / 30d (JURIDICA).
 - **Rate limiting:** Throttle por IP/usuario vía Redis (Upstash).
 - **OWASP:** Helmet, ValidationPipe global, sanitización de inputs.
  
