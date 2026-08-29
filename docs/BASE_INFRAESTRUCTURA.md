@@ -1,6 +1,17 @@
 # AgroTech Boyacá — Contexto Arquitectónico v1
-> Decisiones cerradas · Fase de diseño · Sin código ejecutado aún
- 
+> Decisiones cerradas · Host backend: **Render**
+
+## Host de ejecución (canónico)
+
+El backend vive **solo en Render**. No hay segundo host ni CLI de otro PaaS.
+
+| Rol | Servicio | Dato |
+|-----|----------|------|
+| API NestJS | Render Web Service (Docker, Free, Ohio) | `https://agrotech-8p9b.onrender.com` |
+| Health / cron | `GET /health` cada 10 min | JSON `{"status":"ok",...}` |
+| CI/CD | GitHub Actions → Deploy Hook de Render | merge a `main` |
+| Blueprint | [`render.yaml`](../render.yaml) | contexto Docker = `backend` |
+
 ---
  
 ## 1. Contexto del producto
