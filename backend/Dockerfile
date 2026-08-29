@@ -1,4 +1,4 @@
-﻿# Build context: backend/ (Railway Root Directory = backend)
+﻿# Build context: backend/ (Render Docker context = backend)
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./

@@ -9,7 +9,7 @@ agrotech_boyaca/
 ├── backend/          # API NestJS (monolito modular) + Prisma (próximo)
 ├── mobile/           # App Flutter (Android / iOS plantilla)
 ├── docs/             # Contexto arquitectónico y paper
-├── infra/            # Notas Railway / cron / migraciones
+├── infra/            # Notas Render / cron / migraciones
 ├── .editorconfig     # Estilo de editor compartido
 └── CONTRIBUTING.md   # Ramas, commits y flujo de contribución
 ```
@@ -23,7 +23,7 @@ agrotech_boyaca/
 
 Detalle de módulos y decisiones: [`docs/BASE_INFRAESTRUCTURA.md`](docs/BASE_INFRAESTRUCTURA.md).
 
-Aprovisionamiento free-tier (Railway, Supabase, Upstash, R2, Firebase): [`infra/PROVISIONING.md`](infra/PROVISIONING.md).
+Aprovisionamiento free-tier (Render, Supabase, Upstash, R2, Firebase): [`infra/PROVISIONING.md`](infra/PROVISIONING.md).
 
 ## Prerrequisitos
 
@@ -42,8 +42,9 @@ npm run start:dev
 ```
 
 API por defecto en `http://localhost:3000`. Health: `GET /health`.
+Producción (Render Free): `https://agrotech-8p9b.onrender.com/health` — el servicio hiberna a los 15 min; cron cada 10 min (ver [`infra/cron-health.md`](infra/cron-health.md)).
 
-Variables de entorno: copiar `backend/.env.example` → `backend/.env`.
+Variables de entorno: copiar `backend/.env.example` → `backend/.env`. Deploy: [`infra/PROVISIONING.md`](infra/PROVISIONING.md) y [`render.yaml`](render.yaml).
 
 ## Mobile
 

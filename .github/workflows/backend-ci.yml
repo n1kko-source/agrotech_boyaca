@@ -28,6 +28,8 @@ jobs:
         working-directory: backend
       - run: npm run test:integration
         working-directory: backend
+      - run: npm run test:e2e
+        working-directory: backend
 
   load-test:
     runs-on: ubuntu-latest
