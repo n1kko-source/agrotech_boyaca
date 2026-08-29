@@ -10,6 +10,7 @@ El backend vive **solo en Render**. No hay segundo host ni CLI de otro PaaS.
 | API NestJS | Render Web Service (Docker, Free, Ohio) | `https://agrotech-8p9b.onrender.com` |
 | Health / cron | `GET /health` cada 10 min | JSON `{"status":"ok",...}` |
 | CI/CD | GitHub Actions → Deploy Hook de Render | merge a `main` |
+| Backups Postgres | GitHub Actions `pg_dump` → R2 `backups/postgres/` | diario 06:00 COT, retención 7d |
 | Blueprint | [`render.yaml`](../render.yaml) | contexto Docker = `backend` |
 
 ---
@@ -98,6 +99,7 @@ DTOs · Guards · Interceptors · Pipes · Throttle (Redis) · Logger · GlobalE
 | OTP SMS | Firebase Authentication | 10.000 SMS/mes |
 | Push notifications | Firebase FCM | Gratuito permanente |
 | Anti-sleep | Cron-job.org → GET /health cada 10min | — |
+| Backups PG | GitHub Actions → R2 `backups/postgres/` | retención 7 días; Free no tiene PITR |
  
 **Punto de migración:** al superar ~500 usuarios activos concurrentes → Render pago (sin spin-down) + Supabase Pro + Upstash Pro. El código NestJS no cambia.
  
@@ -105,7 +107,7 @@ DTOs · Guards · Interceptors · Pipes · Throttle (Redis) · Logger · GlobalE
  
 ## 6. Seguridad y cumplimiento
  
-- **Ley 1581 (Habeas Data):** datos sensibles (teléfono, NIT, email) cifrados en reposo con pgcrypto AES-256. Nunca en logs.
+- **Ley 1581 (Habeas Data):** datos sensibles (teléfono, NIT, email) cifrados en reposo con pgcrypto AES-256. Nunca en logs. Dumps de Postgres en R2 (`backups/`) son PII; bucket privado.
 - **JWT:** firmados RS256 (clave asimétrica). Access token 15min (NATURAL) / 60min (JURIDICA). Refresh token hasheado en Redis.
 - **Rate limiting:** Throttle por IP/usuario vía Redis (Upstash).
 - **OWASP:** Helmet, ValidationPipe global, sanitización de inputs.

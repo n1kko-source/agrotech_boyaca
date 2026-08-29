@@ -152,11 +152,38 @@ El job de deploy usa el environment `production` de GitHub (se crea solo en el p
 
 ---
 
+## 8. Backups Postgres (AG-40)
+
+Supabase Free no ofrece PITR. Dump diario con GitHub Actions → **R2** prefijo `backups/postgres/` (no artifacts).
+
+- Workflow: [`.github/workflows/backup-postgres.yml`](../.github/workflows/backup-postgres.yml)
+- Scripts: [`infra/backup/`](./backup/)
+- Restauración: [`RUNBOOK.md`](./RUNBOOK.md)
+
+### Secretos extra (Actions)
+
+| Secret | Variable local |
+|--------|----------------|
+| `SUPABASE_DIRECT_URL` | `DIRECT_URL` (session `:5432`) |
+| `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | igual |
+| `R2_BUCKET` / `R2_ENDPOINT` | igual |
+
+Canario: tabla `agrotech_backup_canary` (1 fila). El job restaura esa tabla en Postgres efímero; si no hay fila, el dump no cuenta como backup.
+
+Alerta: 2 fallos seguidos → issue GitHub `AG-40: Postgres backup failed twice consecutively`.
+
+Lifecycle R2: expirar `backups/postgres/` a 7 días (además del prune del job).
+
+El token R2 de Actions necesita **Object Read & Write** (y List) en el bucket. Un token de solo lectura produce `AccessDenied` en `PutObject`.
+
+---
+
 ## Seguridad (Ley 1581)
 
-- Nunca subir `.env`, `*.pem`, service accounts ni `google-services.json`.
+- Nunca subir `.env`, `*.pem`, service accounts, `google-services.json` ni dumps `*.dump`.
 - Rotar tokens si se filtran en un PR o chat.
 - Logs: no imprimir teléfono, NIT, email ni connection strings completas.
+- Dumps en R2 son PII; prefijo `backups/` privado.
 
 ---
 

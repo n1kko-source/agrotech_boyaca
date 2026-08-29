@@ -11,7 +11,7 @@ agrotech_boyaca/
 ├── backend/          # API NestJS (monolito modular) + Prisma (próximo)
 ├── mobile/           # App Flutter (Android / iOS plantilla)
 ├── docs/             # Contexto arquitectónico y paper
-├── infra/            # Notas Render / cron / migraciones
+├── infra/            # Render, cron, backups R2, runbook
 ├── .editorconfig     # Estilo de editor compartido
 └── CONTRIBUTING.md   # Ramas, commits y flujo de contribución
 ```
@@ -50,6 +50,8 @@ Producción (Render Free): `https://agrotech-8p9b.onrender.com/health` — el se
 Variables de entorno: copiar `backend/.env.example` → `backend/.env`. Deploy: [`infra/PROVISIONING.md`](infra/PROVISIONING.md) y [`render.yaml`](render.yaml).
 
 CI (AG-14): en cada push/PR sobre `backend/**` corre lint, build, tests unitarios (más integration/e2e y smoke k6). El estado aparece en el PR. Al mergear a `main`, el workflow dispara el deploy en **Render**.
+
+Backups (AG-40): dump diario de Supabase → R2 `backups/postgres/` (retención 7 días). Runbook: [`infra/RUNBOOK.md`](infra/RUNBOOK.md).
 
 ## Mobile
 

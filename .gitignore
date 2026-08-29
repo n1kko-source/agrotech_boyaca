@@ -208,9 +208,14 @@ temp/
 .parcel-cache/
 
 # -----------------------------------------------------------------------------
-# Observabilidad / artefactos locales
+# Backups locales (AG-40) — dumps con PII, nunca versionar
 # -----------------------------------------------------------------------------
 *.dump
+infra/backup/tmp/
+
+# -----------------------------------------------------------------------------
+# Observabilidad / artefactos locales
+# -----------------------------------------------------------------------------
 *.heap
 *.cpuprofile
 *.heapsnapshot
