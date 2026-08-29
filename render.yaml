@@ -40,6 +40,14 @@ services:
         sync: false
       - key: JWT_PUBLIC_KEY
         sync: false
+      - key: JWT_PRIVATE_KEY
+        sync: false
+      - key: FIREBASE_WEB_API_KEY
+        sync: false
+      - key: PII_ENCRYPTION_KEY
+        sync: false
+      - key: PII_HASH_PEPPER
+        sync: false
       - key: THROTTLE_TTL
         value: "60000"
       - key: THROTTLE_LIMIT

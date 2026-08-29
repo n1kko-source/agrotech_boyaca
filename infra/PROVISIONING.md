@@ -76,7 +76,9 @@ Plantilla de variables: [`backend/.env.example`](../backend/.env.example).
 ## 4. Firebase (OTP + FCM)
 
 1. Crear proyecto Firebase (mismo nombre org. que AgroTech).
-2. Habilitar **Authentication** → método teléfono (OTP SMS) cuando el ticket Auth lo requiera.
+2. Habilitar **Authentication** → método **Phone** (OTP SMS). Copiar el **Web API key** (Project settings → General) → `FIREBASE_WEB_API_KEY`.
+   - Android: Play Integrity (SHA-256 del package) para que `POST /auth/otp/send` pueda reenviar el `playIntegrityToken`.
+   - Números de prueba en Authentication → Sign-in method → Phone (staging, sin SMS real).
 3. Habilitar **Cloud Messaging** (FCM) para push Android.
 4. **Project settings → Service accounts → Generate new private key**:
    - Usar `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` en Render / `.env`
@@ -96,9 +98,11 @@ Plantilla de variables: [`backend/.env.example`](../backend/.env.example).
 3. Dockerfile Path: `backend/Dockerfile` · Docker context: `backend` (el Dockerfile asume ese contexto).
 4. Instance: **Free**. Región recomendada hacia Colombia: **Ohio**.
 5. Health Check Path: `/health`.
-6. Variables: pegar desde `.env.example` con valores reales (DATABASE, Redis, R2, Firebase).
+6. Variables: pegar desde `.env.example` con valores reales (DATABASE, Redis, R2, Firebase, JWT, PII).
    - **No** definas `PORT` (Render lo inyecta).
    - **No** definas `GOOGLE_APPLICATION_CREDENTIALS`.
+   - AG-15: `JWT_PRIVATE_KEY`, `FIREBASE_WEB_API_KEY`, `PII_ENCRYPTION_KEY`, `PII_HASH_PEPPER` (además de `JWT_PUBLIC_KEY`).
+   - Migraciones Prisma corren al arrancar el contenedor (`DIRECT_URL` session `:5432`).
 7. Dominio público → `APP_PUBLIC_URL` (local y referencia del cron), p. ej. `https://agrotech-8p9b.onrender.com`.
 
 Blueprint equivalente (sin secretos): [`render.yaml`](../render.yaml) en la raíz del monorepo.

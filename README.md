@@ -8,7 +8,7 @@ Marketplace agrícola para Boyacá (Colombia): conecta productores rurales con c
 
 ```
 agrotech_boyaca/
-├── backend/          # API NestJS (monolito modular) + Prisma (próximo)
+├── backend/          # API NestJS (monolito modular) + Prisma
 ├── mobile/           # App Flutter (Android / iOS plantilla)
 ├── docs/             # Contexto arquitectónico y paper
 ├── infra/            # Render, cron, backups R2, runbook

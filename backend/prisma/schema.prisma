@@ -1,0 +1,27 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  NATURAL
+  JURIDICA
+}
+
+/// Phone plaintext is never stored. `phone_enc` is pgcrypto AES-256; lookup uses HMAC.
+model User {
+  id          String   @id @db.Uuid
+  role        Role     @default(NATURAL)
+  phoneEnc    Bytes    @map("phone_enc")
+  phoneHash   String   @unique @map("phone_hash")
+  firebaseUid String?  @unique @map("firebase_uid")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
