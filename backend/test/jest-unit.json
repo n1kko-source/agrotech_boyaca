@@ -5,5 +5,8 @@
   "testRegex": "unit/.*\\.spec\\.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
-  }
+  },
+  "transformIgnorePatterns": [
+    "node_modules/(?!(.*\\.mjs$)|@nestjs/config|@nestjs/throttler|@nestjs/jwt|nestjs-pino|pino-http|pino/|helmet|ioredis)"
+  ]
 }
