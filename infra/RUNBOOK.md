@@ -102,7 +102,7 @@ SELECT dumped_at FROM agrotech_backup_canary WHERE id = 1;
 5. Apuntar Render (`DATABASE_URL` transaction `:6543` + `DIRECT_URL` session `:5432`) al proyecto restaurado.
 6. Health: `GET https://agrotech-8p9b.onrender.com/health`.
 
-Si `pg_restore` se queja de extensiones, instálalas en el SQL editor (`pgcrypto`, etc.) y reintenta. No uses el pooler **transaction** (`6543`) para restore.
+Si `pg_restore` se queja de extensiones, instálalas en el SQL editor (`pgcrypto`, `unaccent`, `pg_trgm`) y reintenta. No uses el pooler **transaction** (`6543`) para restore.
 
 ---
 

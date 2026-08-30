@@ -1,7 +1,7 @@
 # AgroTech Boyacá — Contexto arquitectónico
 
 > Guía base del proyecto. **El código en este repo manda.** Si un ticket Jira contradice lo implementado, se sigue el código y se actualiza este archivo en el mismo cambio.
-> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41) y `AdminModule`.
+> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41), `AdminModule` y FTS de comunidad (AG-21).
 
 ## Host de ejecución (canónico)
 
@@ -79,7 +79,7 @@ ADMIN no es usuario de la app rural: opera contra la API (Postman / curl / futur
 
 **Justificación monolito:** evita latencia inter-servicio bajo 2G/3G, reduce complejidad operativa en fase MVP, extractable a microservicios cuando la carga lo justifique.
 
-Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `AuthModule`, `AdminModule`.
+Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `AuthModule`, `AdminModule`, `ComunidadModule`.
 
 ### 4.1 Módulos — implementados
 
@@ -89,12 +89,12 @@ Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `AuthModule`, `AdminM
 | PrismaModule | Postgres (Supabase). `DATABASE_URL` pooler `:6543`; `DIRECT_URL` session `:5432` para migraciones/backups |
 | AuthModule | OTP NATURAL · registro/login JURIDICA · login ADMIN · issue/revoke refresh (una sesión por usuario) · `GET /auth/me` |
 | AdminModule | Operador: listar JURIDICA pendientes · `PATCH` verify · auditoría UUID · email de aviso |
+| ComunidadModule | Posts de marketplace · perfiles públicos productor/comprador · FTS PostgreSQL (`unaccent` + `pg_trgm`). Matching y mensajería aún no |
 
 ### 4.2 Módulos — previstos (aún no hay código)
 
 | Módulo | Responsabilidad |
 |---|---|
-| ComunidadModule | Matching productor/comprador · Posts · Mensajería · FTS PostgreSQL |
 | CommoditiesModule | Precios en tiempo real · Redis TTL agresivo |
 | NoticiasModule | FCM push · WebSocket Gateway · Alertas · Clima |
 | GuiasModule | PDF/Audio metadata · Entrega low-bandwidth (R2) |
@@ -151,6 +151,21 @@ Semilla admin (desde `backend/`):
 npm run auth:create-admin -- ops@example.com 'a-strong-password'
 ```
 
+### 4.4.1 Comunidad — contrato HTTP
+
+Listados de marketplace. JWT de cualquier rol para buscar. Crear post o ficha pública: solo `NATURAL` / `JURIDICA` (`ADMIN` → `403`). Sin token → `401`. El perfil público **no** lleva teléfono, email ni NIT.
+
+| Método | Ruta | Quién | Resultado |
+|---|---|---|---|
+| `GET` | `/posts/search?q=&limit=` | JWT | Ítems ranqueados (`ts_rank_cd` + `similarity` / `word_similarity`). `q` 1–100 chars. `limit` default 20, max 50 |
+| `POST` | `/posts` | NATURAL, JURIDICA | `{ title, description, category }` → 201 |
+| `GET` | `/profiles/search?q=&limit=` | JWT | Fichas públicas ranqueadas (nombre comercial, municipio, rubro, bio) |
+| `PUT` | `/profiles/me` | NATURAL, JURIDICA | Upsert de la ficha pública del `sub` |
+
+Índice FTS: columna generada `search_vector` (config `spanish_unaccent`) + GIN `pg_trgm` sobre texto `unaccent`. Extensiones `unaccent` y `pg_trgm` (migración). Target: < 200 ms con ≥ 5.000 posts.
+
+Matching productor/comprador y mensajería siguen previstos; no hay endpoints de hilos ni de match.
+
 ### 4.5 Datos (Ley 1581)
 
 Tabla `users`: plaintext de teléfono / email / NIT **nunca** se guarda. Ciphertext `pgcrypto` AES-256 (`pgp_sym_encrypt`); lookup HMAC-SHA256 con `PII_HASH_PEPPER`. Constraints: NATURAL exige teléfono; JURIDICA exige email+NIT+`entity_type`; ADMIN exige email y no lleva NIT ni `entity_type`.
@@ -160,6 +175,8 @@ Consentimiento explícito (AG-41): `privacy_policy_version` + `privacy_policy_ac
 Tabla `verification_events`: solo UUIDs y booleano. Sin PII.
 
 Tabla `deletion_requests`: `user_id` único (solicitud de supresión). El MVP no ejecuta el borrado; el operador usa `GET /admin/privacy/deletion-requests` y cumple a mano.
+
+Tablas `posts` y `marketplace_profiles`: listados públicos (título, rubro, municipio, bio). Sin PII. FTS en columna generada `search_vector` + índices GIN `pg_trgm` (extensiones `unaccent`, `pg_trgm`).
 
 Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, claves.
 
