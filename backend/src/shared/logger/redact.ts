@@ -19,6 +19,8 @@ const SENSITIVE_KEYS = new Set([
   'jwt_private_key',
   'openweather_api_key',
   'clima_job_secret',
+  'r2_secret_access_key',
+  'r2_access_key_id',
   'fcmtoken',
   'refreshtoken',
   'refresh_token',
@@ -78,5 +80,7 @@ export const PINO_REDACT_PATHS = [
   '*.fcmToken',
   '*.OPENWEATHER_API_KEY',
   '*.CLIMA_JOB_SECRET',
+  '*.R2_SECRET_ACCESS_KEY',
+  '*.R2_ACCESS_KEY_ID',
   'req.headers.x-clima-job-secret',
 ];

@@ -71,7 +71,8 @@ Plantilla de variables: [`backend/.env.example`](../backend/.env.example).
    - `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`
    - `R2_BUCKET`
    - `R2_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com`
-4. Dominio público / CDN opcional → `R2_PUBLIC_BASE_URL` (puede quedar vacío en Sprint 0).
+4. Dominio público / CDN opcional → `R2_PUBLIC_BASE_URL` (puede quedar vacío; las descargas de guías van por `GET /guias/:id/archivo` con JWT, no por dominio público).
+5. AG-26: el token debe poder **Put/Get/Delete** en el prefijo `guias/`. El Dockerfile de backend instala `ffmpeg` (Opus 16 kbps). `GET /health` → `r2.storageBytes` / `r2.reads` (cupo 10 GB / 1 M lecturas). Los dumps de AG-40 en `backups/postgres/` **también** cuentan al 10 GB del bucket.
 
 ---
 

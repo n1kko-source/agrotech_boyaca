@@ -20,7 +20,6 @@ import {
   CLIMA_FIRE_COOLDOWN_MS,
   type AlertKind,
 } from './clima.constants';
-import { NOTIFICATION_TITLE_MAX } from '../notifications/notification.constants';
 import { CLIMA_EVENTS } from './events/clima.events';
 import type { ClimaEvents } from './events/clima.events';
 import { climaCacheKey, normalizeMunicipio } from './municipio';

@@ -2,7 +2,7 @@
 
 Antes de implementar o de contradecir un ticket, leer [`docs/BASE_INFRAESTRUCTURA.md`](docs/BASE_INFRAESTRUCTURA.md). Ese archivo es el contrato del repo. **El código actual manda.**
 
-Módulos backend **ya en código**: Shared, Prisma, Auth, Admin, Comunidad, Commodities, Notifications (FCM), Clima (alertas). Noticias (contenido), Guías y Sync están previstos: no inventarlos porque el ticket los nombre. Host de la API: solo Render.
+Módulos backend **ya en código**: Shared, Prisma, Auth, Admin, Comunidad, Commodities, Notifications (FCM), Clima (alertas), Guías (PDF/audio). Noticias (contenido) y Sync están previstos: no inventarlos porque el ticket los nombre. Host de la API: solo Render.
 
 ## Ramas
 

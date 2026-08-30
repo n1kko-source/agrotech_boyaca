@@ -45,6 +45,7 @@ model User {
   deviceTokens     DeviceToken[]
   notifications    Notification[]
   weatherAlerts    WeatherAlert[]
+  guias            Guia[]
 
   @@map("users")
 }
@@ -180,4 +181,33 @@ model WeatherAlert {
   @@unique([userId, municipio, kind])
   @@index([enabled, municipio])
   @@map("weather_alerts")
+}
+
+/// Technical guide metadata. Bytes live in R2 under `guias/`. Not PII.
+model Guia {
+  id         String   @id @db.Uuid
+  titulo     String
+  categoria  String
+  subsector  String
+  kind       String
+  mimeType   String   @map("mime_type")
+  sizeBytes  Int      @map("size_bytes")
+  objectKey  String   @unique @map("object_key")
+  createdBy  String   @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  author User @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@index([categoria, createdAt])
+  @@map("guias")
+}
+
+/// App-metered Class B reads against R2 (guias downloads). Month is UTC YYYY-MM.
+model R2MonthlyRead {
+  month     String   @id
+  reads     Int      @default(0)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("r2_monthly_reads")
 }
