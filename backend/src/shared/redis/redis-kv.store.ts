@@ -8,6 +8,10 @@ export class RedisKvStore implements KvStore {
     return this.redis.get(key);
   }
 
+  async getdel(key: string): Promise<string | null> {
+    return this.redis.getdel(key);
+  }
+
   async set(key: string, value: string, ttlSeconds: number): Promise<void> {
     await this.redis.set(key, value, 'EX', ttlSeconds);
   }

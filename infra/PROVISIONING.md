@@ -81,11 +81,14 @@ Plantilla de variables: [`backend/.env.example`](../backend/.env.example).
    - Números de prueba en Authentication → Sign-in method → Phone (staging, sin SMS real).
    - Plantilla de verificación de email en Authentication → Templates (idioma `es`). `POST /auth/register/juridica` llama `accounts:signUp` + `accounts:sendOobCode` (VERIFY_EMAIL). Si el INSERT en Postgres falla, se borra el usuario de Firebase (`accounts:delete`). El login exige email verificado en Firebase **y** `verified = true` en Postgres (activación tras revisión documental).
    - Reenvío: `POST /auth/register/juridica/resend` `{ email, password }`.
-   - Activar cuenta (HMAC del email, sin SQL con plaintext): desde `backend/`
+   - Operadores (AG-17): no hay registro público de admin. Sembrar:
      ```bash
-     npm run auth:verify-juridica -- coop@example.com
+     npm run auth:create-admin -- ops@example.com 'a-strong-password'
      ```
-     Requiere `DATABASE_URL` y `PII_HASH_PEPPER`. Sale `verified` (0) o `not found` (2). `POST /auth/refresh` rechaza si `verified` pasa a `false`.
+     Login: `POST /auth/login/admin` `{ email, password }` → JWT `role: ADMIN`.
+     `GET /admin/juridica/pending` y `PATCH /admin/juridica/:id/verify` `{ verified }`.
+     Aviso al verificar: email vía Resend si `RESEND_API_KEY` + `MAIL_FROM`; si no, log sin PII.
+     El script `auth:verify-juridica` queda como fallback operativo (sin auditoría de operador).
 3. Habilitar **Cloud Messaging** (FCM) para push Android.
 4. **Project settings → Service accounts → Generate new private key**:
    - Usar `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` en Render / `.env`

@@ -26,7 +26,8 @@
     "test:unit": "jest --config ./test/jest-unit.json",
     "test:integration": "jest --config ./test/jest-integration.json",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "auth:verify-juridica": "node scripts/verify-juridica.cjs"
+    "auth:verify-juridica": "node scripts/verify-juridica.cjs",
+    "auth:create-admin": "node scripts/create-admin.cjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

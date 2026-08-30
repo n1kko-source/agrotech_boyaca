@@ -33,9 +33,14 @@ describe('PrismaUsersRepository', () => {
   });
 
   it('inserts JURIDICA with encrypted email and NIT, verified false', async () => {
-    const queryRaw = jest
-      .fn()
-      .mockResolvedValue([{ id: 'org-1', role: 'JURIDICA', verified: false }]);
+    const queryRaw = jest.fn().mockResolvedValue([
+      {
+        id: 'org-1',
+        role: 'JURIDICA',
+        verified: false,
+        entity_type: 'COOPERATIVA',
+      },
+    ]);
     const prisma = { db: { $queryRaw: queryRaw } } as unknown as PrismaService;
     const config = {
       get: (key: string) => {
@@ -55,7 +60,12 @@ describe('PrismaUsersRepository', () => {
       entityType: 'cooperativa',
       firebaseUid: 'fb-org',
     });
-    expect(user).toEqual({ id: 'org-1', role: 'JURIDICA', verified: false });
+    expect(user).toEqual({
+      id: 'org-1',
+      role: 'JURIDICA',
+      verified: false,
+      entityType: 'cooperativa',
+    });
     expect(queryRaw).toHaveBeenCalled();
   });
 });

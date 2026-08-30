@@ -1,5 +1,6 @@
 import {
   checkDigit,
+  maskNit,
   normalizeNit,
   nitLookupHash,
 } from '../../src/auth/nit/nit';
@@ -23,5 +24,9 @@ describe('nit helpers', () => {
     expect(hash).toHaveLength(64);
     expect(hash).not.toContain('800197268');
     expect(nitLookupHash('8001972684', 'other')).not.toBe(hash);
+  });
+
+  it('masks NIT for operator lists', () => {
+    expect(maskNit('8001972684')).toBe('****268-4');
   });
 });

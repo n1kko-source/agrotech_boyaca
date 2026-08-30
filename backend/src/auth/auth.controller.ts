@@ -1,11 +1,21 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import type { JwtUser } from '../shared/auth/jwt-user';
+import { CurrentUser } from '../shared/decorators/current-user.decorator';
 import { Public } from '../shared/decorators/public.decorator';
 import {
   AuthService,
   RegisterJuridicaResult,
   ResendVerificationResult,
 } from './auth.service';
+import { LoginAdminDto } from './dto/login-admin.dto';
 import { LoginJuridicaDto } from './dto/login-juridica.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterJuridicaDto } from './dto/register-juridica.dto';
@@ -62,10 +72,30 @@ export class AuthController {
     return this.auth.loginJuridica(dto);
   }
 
+  @Post('login/admin')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 900_000 } })
+  loginAdmin(@Body() dto: LoginAdminDto): Promise<IssuedTokens> {
+    return this.auth.loginAdmin(dto);
+  }
+
   @Post('refresh')
   @Public()
   @HttpCode(HttpStatus.OK)
   refresh(@Body() dto: RefreshTokenDto): Promise<IssuedTokens> {
     return this.auth.refresh(dto.refreshToken);
+  }
+
+  @Post('logout')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  logout(@Body() dto: RefreshTokenDto): Promise<{ revoked: true }> {
+    return this.auth.logout(dto.refreshToken);
+  }
+
+  @Get('me')
+  me(@CurrentUser() user: JwtUser): JwtUser {
+    return user;
   }
 }

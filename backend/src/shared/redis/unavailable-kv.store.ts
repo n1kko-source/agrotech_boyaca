@@ -8,6 +8,11 @@ export class UnavailableKvStore implements KvStore {
     return rejectUnavailable();
   }
 
+  getdel(key: string): Promise<string | null> {
+    void key;
+    return rejectUnavailable();
+  }
+
   set(key: string, value: string, ttlSeconds: number): Promise<void> {
     void key;
     void value;

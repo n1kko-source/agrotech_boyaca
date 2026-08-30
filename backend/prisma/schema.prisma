@@ -11,6 +11,7 @@ datasource db {
 enum Role {
   NATURAL
   JURIDICA
+  ADMIN
 }
 
 enum EntityType {
@@ -20,7 +21,7 @@ enum EntityType {
 }
 
 /// PII ciphertext is pgcrypto AES-256; lookup uses HMAC. NATURAL uses phone;
-/// JURIDICA uses email + NIT. Phone/email/NIT plaintext is never stored.
+/// JURIDICA uses email + NIT; ADMIN uses email only (seeded, never public register).
 model User {
   id          String      @id @db.Uuid
   role        Role        @default(NATURAL)
@@ -37,4 +38,16 @@ model User {
   updatedAt   DateTime    @updatedAt @map("updated_at")
 
   @@map("users")
+}
+
+/// Operator actions on JURIDICA verification. Stores UUIDs only (no PII).
+model VerificationEvent {
+  id           String   @id @db.Uuid
+  actorId      String   @map("actor_id") @db.Uuid
+  targetUserId String   @map("target_user_id") @db.Uuid
+  verified     Boolean
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([targetUserId])
+  @@map("verification_events")
 }
