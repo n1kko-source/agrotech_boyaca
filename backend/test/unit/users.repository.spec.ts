@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import {
+  InMemoryUsersRepository,
   PGP_ENCRYPT_OPTIONS,
   PrismaUsersRepository,
 } from '../../src/auth/users/users.repository';
@@ -27,7 +28,11 @@ describe('PrismaUsersRepository', () => {
       },
     } as ConfigService;
     const repo = new PrismaUsersRepository(prisma, config);
-    const user = await repo.findOrCreateNatural('+573009998877', 'fb-uid');
+    const user = await repo.findOrCreateNatural(
+      '+573009998877',
+      'fb-uid',
+      '2026-08-30',
+    );
     expect(user).toEqual({ id: 'user-1', role: 'NATURAL', verified: true });
     expect(queryRaw).toHaveBeenCalled();
   });
@@ -59,6 +64,7 @@ describe('PrismaUsersRepository', () => {
       nit: '8001972684',
       entityType: 'cooperativa',
       firebaseUid: 'fb-org',
+      privacyPolicyVersion: '2026-08-30',
     });
     expect(user).toEqual({
       id: 'org-1',
@@ -67,5 +73,24 @@ describe('PrismaUsersRepository', () => {
       entityType: 'cooperativa',
     });
     expect(queryRaw).toHaveBeenCalled();
+  });
+});
+
+describe('InMemoryUsersRepository privacy consent', () => {
+  it('keeps the first NATURAL consent and does not overwrite the version', async () => {
+    const config = {
+      get: (key: string) => (key === 'PII_HASH_PEPPER' ? 'pepper' : undefined),
+    } as ConfigService;
+    const repo = new InMemoryUsersRepository(config);
+    const user = await repo.findOrCreateNatural(
+      '+573009998877',
+      'fb-uid',
+      '2026-08-30',
+    );
+    const first = await repo.findPrivacyConsent(user.id);
+    expect(first?.version).toBe('2026-08-30');
+    await repo.findOrCreateNatural('+573009998877', 'fb-uid', '2099-01-01');
+    const again = await repo.findPrivacyConsent(user.id);
+    expect(again).toEqual(first);
   });
 });

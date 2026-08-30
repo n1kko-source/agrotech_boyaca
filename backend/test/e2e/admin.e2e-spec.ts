@@ -68,6 +68,7 @@ describe('Admin JURIDICA (e2e)', () => {
         password: PASSWORD,
         nit: NIT,
         entityType: 'cooperativa',
+        acceptPrivacyPolicy: true,
       })
       .expect(201);
 
@@ -83,7 +84,7 @@ describe('Admin JURIDICA (e2e)', () => {
     const otpBody = otpSend.body as { devCode: string };
     const natural = await request(app.getHttpServer())
       .post('/auth/otp/verify')
-      .send({ phone: PHONE, code: otpBody.devCode })
+      .send({ phone: PHONE, code: otpBody.devCode, acceptPrivacyPolicy: true })
       .expect(200);
     const naturalTokens = natural.body as { accessToken: string };
 

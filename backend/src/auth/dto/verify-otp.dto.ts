@@ -1,4 +1,4 @@
-import { IsString, Matches } from 'class-validator';
+import { Equals, IsBoolean, IsString, Matches } from 'class-validator';
 import { CO_MOBILE_E164 } from '../phone/phone';
 
 export class VerifyOtpDto {
@@ -9,4 +9,8 @@ export class VerifyOtpDto {
   @IsString()
   @Matches(/^\d{6}$/, { message: 'Invalid code' })
   code!: string;
+
+  @IsBoolean()
+  @Equals(true, { message: 'Privacy policy must be accepted' })
+  acceptPrivacyPolicy!: true;
 }

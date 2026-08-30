@@ -1,4 +1,6 @@
 import {
+  Equals,
+  IsBoolean,
   IsEmail,
   IsIn,
   IsOptional,
@@ -29,4 +31,8 @@ export class RegisterJuridicaDto {
   @IsOptional()
   @IsIn(ENTITY_TYPES)
   entity_type?: EntityTypeValue;
+
+  @IsBoolean()
+  @Equals(true, { message: 'Privacy policy must be accepted' })
+  acceptPrivacyPolicy!: true;
 }

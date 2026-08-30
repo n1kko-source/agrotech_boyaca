@@ -98,4 +98,11 @@ export class AuthController {
   me(@CurrentUser() user: JwtUser): JwtUser {
     return user;
   }
+
+  @Post('privacy/deletion-request')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 3, ttl: 3_600_000 } })
+  requestDeletion(@CurrentUser() user: JwtUser): Promise<{ requested: true }> {
+    return this.auth.requestDeletion(user.sub);
+  }
 }
