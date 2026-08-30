@@ -33,9 +33,11 @@ model User {
   nitHash     String?     @unique @map("nit_hash")
   entityType  EntityType? @map("entity_type")
   verified    Boolean     @default(false)
-  firebaseUid String?     @unique @map("firebase_uid")
-  createdAt   DateTime    @default(now()) @map("created_at")
-  updatedAt   DateTime    @updatedAt @map("updated_at")
+  firebaseUid             String?   @unique @map("firebase_uid")
+  privacyPolicyVersion    String?   @map("privacy_policy_version")
+  privacyPolicyAcceptedAt DateTime? @map("privacy_policy_accepted_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
 
   @@map("users")
 }
@@ -50,4 +52,13 @@ model VerificationEvent {
 
   @@index([targetUserId])
   @@map("verification_events")
+}
+
+/// Habeas data deletion request (Ley 1581). UUIDs only. Support fulfills by hand in MVP.
+model DeletionRequest {
+  id        String   @id @db.Uuid
+  userId    String   @unique @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("deletion_requests")
 }

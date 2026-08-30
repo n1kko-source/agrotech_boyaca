@@ -4,6 +4,8 @@ import { AuthModule } from '../auth/auth.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdminJuridicaController } from './admin-juridica.controller';
 import { AdminJuridicaService } from './admin-juridica.service';
+import { AdminPrivacyController } from './admin-privacy.controller';
+import { AdminPrivacyService } from './admin-privacy.service';
 import { VERIFICATION_AUDIT } from './audit/verification-audit';
 import {
   MemoryVerificationAudit,
@@ -15,9 +17,10 @@ import { ResendAccountMailer } from './mailer/resend-account.mailer';
 
 @Module({
   imports: [AuthModule],
-  controllers: [AdminJuridicaController],
+  controllers: [AdminJuridicaController, AdminPrivacyController],
   providers: [
     AdminJuridicaService,
+    AdminPrivacyService,
     {
       provide: VERIFICATION_AUDIT,
       inject: [PrismaService, ConfigService],

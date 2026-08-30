@@ -1,7 +1,7 @@
 # AgroTech Boyacá — Contexto arquitectónico
 
 > Guía base del proyecto. **El código en este repo manda.** Si un ticket Jira contradice lo implementado, se sigue el código y se actualiza este archivo en el mismo cambio.
-> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN + `AdminModule`.
+> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41) y `AdminModule`.
 
 ## Host de ejecución (canónico)
 
@@ -104,19 +104,22 @@ No implementar estos módulos “porque el ticket lo nombra” si el kernel de a
 
 ### 4.3 Auth — contrato HTTP
 
-Público (`@Public()`), salvo `GET /auth/me`.
+Público (`@Public()`), salvo `GET /auth/me` y `POST /auth/privacy/deletion-request`.
 
 | Método | Ruta | Quién | Resultado |
 |---|---|---|---|
 | `POST` | `/auth/otp/send` | NATURAL | Envía OTP (Firebase o modo local). Rate limit estricto |
-| `POST` | `/auth/otp/verify` | NATURAL | JWT 15 min + refresh 7 d |
-| `POST` | `/auth/register/juridica` | JURIDICA | `{ email, password, nit, entityType }`. Firebase `signUp` + mail de verificación. Fila `verified = false`. Si Postgres falla tras Firebase → `accounts:delete` |
+| `POST` | `/auth/otp/verify` | NATURAL | `{ phone, code, acceptPrivacyPolicy: true }`. JWT 15 min + refresh 7 d. Sin consentimiento → `400`. Persiste versión de política + timestamp (no se sobrescribe en logins posteriores) |
+| `POST` | `/auth/register/juridica` | JURIDICA | `{ email, password, nit, entityType, acceptPrivacyPolicy: true }`. Firebase `signUp` + mail de verificación. Fila `verified = false`. Si Postgres falla tras Firebase → `accounts:delete`. Sin consentimiento → `400` |
 | `POST` | `/auth/register/juridica/resend` | JURIDICA | Reenvía oob de email |
 | `POST` | `/auth/login/juridica` | JURIDICA | JWT 60 min + refresh 30 d. `403` si falta email Firebase o `verified` |
 | `POST` | `/auth/login/admin` | ADMIN | JWT 60 min + refresh 7 d. Semilla CLI, no hay `POST /auth/register/admin` |
 | `POST` | `/auth/refresh` | los tres | Rota el refresh con `GETDEL` (atómico). Un refresh vivo por usuario. Respeta TTL del **rol**. JURIDICA deja de rotar si `verified` pasa a `false` |
 | `POST` | `/auth/logout` | los tres | Revoca el refresh actual y el índice de sesión en Redis |
 | `GET` | `/auth/me` | JWT (cualquier rol autenticado) | `{ sub, role, entityType? }`. Sin `@Roles`: basta el Bearer |
+| `POST` | `/auth/privacy/deletion-request` | JWT (cualquier rol autenticado) | Habeas data: `{ requested: true }`. Idempotente. No borra la cuenta; soporte cumple a mano (MVP) |
+| `GET` | `/legal/privacy-policy` | público | `{ version, title, acceptLabel, markdown }`. Texto Ley 1581 para el checkbox |
+| `GET` | `/legal/privacy-policy.md` | público | El mismo texto, `Content-Type: text/markdown` |
 
 Refresh: bytes aleatorios. Redis guarda `agrotech:refresh:{sha256}` y `agrotech:refresh-session:{sub}` (un hash vivo). Un login o refresh nuevo invalida el refresh anterior de ese usuario. Access token: RS256, claims `sub`, `role`, y `entityType` solo si `role = JURIDICA`. El access sigue válido hasta su TTL tras logout (15–60 min); no hay denylist.
 
@@ -138,6 +141,7 @@ Todo bajo `@Roles(ADMIN)`. NATURAL / JURIDICA → `403`. Sin token → `401`.
 |---|---|---|
 | `GET` | `/admin/juridica/pending` | Cursor (`limit`/`cursor`). Ítems: `id`, `entityType`, `createdAt`, `nitMasked` (`****268-4`). Sin email ni NIT completo |
 | `PATCH` | `/admin/juridica/:id/verify` | Body `{ verified: boolean }`. Escribe `verification_events` (`actor_id`, `target_user_id`, `verified`, `created_at` — solo UUID). Si `verified = true`, email de aviso |
+| `GET` | `/admin/privacy/deletion-requests` | Cursor (`limit`/`cursor`). Ítems: `id`, `userId`, `createdAt`. Sin PII |
 
 Aviso: Resend si hay `RESEND_API_KEY` + `MAIL_FROM`; si no, log sin PII (no hay FCM: la cuenta aún no puede loguear). Fallback operativo: `npm run auth:verify-juridica -- <email>` (HMAC, no SQL con email en claro; **no** escribe auditoría ni manda mail).
 
@@ -151,7 +155,11 @@ npm run auth:create-admin -- ops@example.com 'a-strong-password'
 
 Tabla `users`: plaintext de teléfono / email / NIT **nunca** se guarda. Ciphertext `pgcrypto` AES-256 (`pgp_sym_encrypt`); lookup HMAC-SHA256 con `PII_HASH_PEPPER`. Constraints: NATURAL exige teléfono; JURIDICA exige email+NIT+`entity_type`; ADMIN exige email y no lleva NIT ni `entity_type`.
 
+Consentimiento explícito (AG-41): `privacy_policy_version` + `privacy_policy_accepted_at` se escriben en el alta NATURAL (`POST /auth/otp/verify`) y JURIDICA (`POST /auth/register/juridica`) si `acceptPrivacyPolicy === true`. El primer timestamp gana (no se pisa en OTP posteriores). ADMIN sembrado no pasa por este flujo. Política vigente: constante `PRIVACY_POLICY_VERSION` y markdown en `src/legal/privacy-policy.md`.
+
 Tabla `verification_events`: solo UUIDs y booleano. Sin PII.
+
+Tabla `deletion_requests`: `user_id` único (solicitud de supresión). El MVP no ejecuta el borrado; el operador usa `GET /admin/privacy/deletion-requests` y cumple a mano.
 
 Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, claves.
 
@@ -186,7 +194,7 @@ Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, claves.
 
 ## 6. Seguridad y cumplimiento
 
-- **Ley 1581 (Habeas Data):** teléfono, NIT y email cifrados en reposo (pgcrypto AES-256). Lookup por HMAC. Nunca en logs ni en respuestas de `/admin/juridica/pending` (NIT enmascarado). Dumps de Postgres en R2 (`backups/`) son PII; bucket privado.
+- **Ley 1581 (Habeas Data):** consentimiento explícito (`acceptPrivacyPolicy`) en registro NATURAL y JURIDICA, con versión de política + timestamp. Teléfono, NIT y email cifrados en reposo (pgcrypto AES-256). Lookup por HMAC. Nunca en logs ni en respuestas de `/admin/juridica/pending` (NIT enmascarado) ni de `/admin/privacy/deletion-requests`. Dumps de Postgres en R2 (`backups/`) son PII; bucket privado. El titular pide supresión con `POST /auth/privacy/deletion-request`.
 - **JWT:** RS256. TTL por rol (§ 4.3). Un refresh vivo por usuario; rotación con `GETDEL`; logout borra refresh e índice de sesión. Refresh de JURIDICA relee `verified`.
 - **Privilegios:** no existe `POST /auth/register/admin`. Un API key compartido no identifica operador; el audit usa `sub` del JWT ADMIN.
 - **Rate limiting:** Throttle por IP vía Redis (Upstash); OTP y registro JURIDICA tienen límites más estrictos en el controller.

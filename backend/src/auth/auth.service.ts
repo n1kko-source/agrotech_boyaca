@@ -11,6 +11,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PRIVACY_POLICY_VERSION } from '../legal/privacy-policy';
 import { Role } from '../shared/auth/role.enum';
 import { LoginAdminDto } from './dto/login-admin.dto';
 import { LoginJuridicaDto } from './dto/login-juridica.dto';
@@ -32,6 +33,8 @@ import {
 } from './otp/otp.errors';
 import { OtpService, SendOtpResult } from './otp/otp.service';
 import { normalizeCoMobile, phoneLookupHash } from './phone/phone';
+import { DELETION_REQUESTS } from './privacy/deletion-request';
+import type { DeletionRequestStore } from './privacy/deletion-request';
 import { IssuedTokens, TokenService } from './tokens/token.service';
 import { USERS_REPOSITORY } from './users/users.repository';
 import type { AuthUser, UsersRepository } from './users/users.repository';
@@ -54,6 +57,7 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly firebaseEmail: FirebaseEmailClient,
     @Inject(USERS_REPOSITORY) private readonly users: UsersRepository,
+    @Inject(DELETION_REQUESTS) private readonly deletions: DeletionRequestStore,
   ) {}
 
   async sendOtp(dto: SendOtpDto): Promise<SendOtpResult> {
@@ -70,6 +74,7 @@ export class AuthService {
   }
 
   async verifyOtp(dto: VerifyOtpDto): Promise<IssuedTokens> {
+    requirePrivacyConsent(dto.acceptPrivacyPolicy);
     const phone = requirePhone(dto.phone);
     const phoneHash = this.hashPhone(phone);
     try {
@@ -77,6 +82,7 @@ export class AuthService {
       const user = await this.users.findOrCreateNatural(
         phone,
         verified.firebaseUid,
+        PRIVACY_POLICY_VERSION,
       );
       return this.tokens.issue(user.id, user.role, user.entityType);
     } catch (err) {
@@ -87,6 +93,7 @@ export class AuthService {
   async registerJuridica(
     dto: RegisterJuridicaDto,
   ): Promise<RegisterJuridicaResult> {
+    requirePrivacyConsent(dto.acceptPrivacyPolicy);
     const email = requireEmail(dto.email);
     const nit = requireNit(dto.nit);
     const entityType = dto.entityType ?? dto.entity_type;
@@ -114,6 +121,7 @@ export class AuthService {
         nit,
         entityType,
         firebaseUid: signedUp.localId,
+        privacyPolicyVersion: PRIVACY_POLICY_VERSION,
       });
     } catch (err) {
       await this.compensateFirebaseSignUp(signedUp.idToken);
@@ -211,6 +219,11 @@ export class AuthService {
     return { revoked: true };
   }
 
+  async requestDeletion(userId: string): Promise<{ requested: true }> {
+    await this.deletions.request(userId);
+    return { requested: true };
+  }
+
   private hashPhone(phoneE164: string): string {
     const pepper = this.config.get<string>('PII_HASH_PEPPER')?.trim();
     if (!pepper && this.config.get<string>('NODE_ENV') === 'production') {
@@ -236,6 +249,12 @@ function canRefresh(user: AuthUser | null, role: Role): user is AuthUser {
     return false;
   }
   return true;
+}
+
+function requirePrivacyConsent(accepted: boolean | undefined): void {
+  if (accepted !== true) {
+    throw new BadRequestException('Privacy policy must be accepted');
+  }
 }
 
 function requirePhone(raw: string): string {

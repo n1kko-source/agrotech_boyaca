@@ -65,7 +65,7 @@ describe('Auth OTP NATURAL (e2e)', () => {
 
     const verify = await request(app.getHttpServer())
       .post('/auth/otp/verify')
-      .send({ phone: PHONE, code: sendBody.devCode })
+      .send({ phone: PHONE, code: sendBody.devCode, acceptPrivacyPolicy: true })
       .expect(200);
 
     const tokens = verify.body as {
@@ -81,7 +81,11 @@ describe('Auth OTP NATURAL (e2e)', () => {
 
     await request(app.getHttpServer())
       .post('/auth/otp/verify')
-      .send({ phone: PHONE, code: sendBody.devCode })
+      .send({
+        phone: PHONE,
+        code: sendBody.devCode,
+        acceptPrivacyPolicy: true,
+      })
       .expect(401);
 
     const refresh = await request(app.getHttpServer())
@@ -154,6 +158,7 @@ describe('Auth JURIDICA (e2e)', () => {
         password: PASSWORD,
         nit: '800197268-5',
         entityType: 'cooperativa',
+        acceptPrivacyPolicy: true,
       })
       .expect(400);
 
@@ -171,6 +176,7 @@ describe('Auth JURIDICA (e2e)', () => {
         password: PASSWORD,
         nit: NIT,
         entity_type: 'cooperativa',
+        acceptPrivacyPolicy: true,
       })
       .expect(201);
 
@@ -251,6 +257,7 @@ describe('Auth JURIDICA (e2e)', () => {
         password: PASSWORD,
         nit: NIT,
         entityType: 'cooperativa',
+        acceptPrivacyPolicy: true,
       })
       .expect(409);
   });

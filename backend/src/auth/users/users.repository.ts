@@ -32,6 +32,12 @@ export type CreateJuridicaInput = {
   nit: string;
   entityType: EntityTypeValue;
   firebaseUid: string | null;
+  privacyPolicyVersion: string;
+};
+
+export type PrivacyConsent = {
+  version: string;
+  acceptedAt: string;
 };
 
 export type CreateAdminInput = {
@@ -53,6 +59,7 @@ export interface UsersRepository {
   findOrCreateNatural(
     phoneE164: string,
     firebaseUid: string | null,
+    privacyPolicyVersion: string,
   ): Promise<AuthUser>;
   createJuridica(input: CreateJuridicaInput): Promise<AuthUser>;
   createAdmin(input: CreateAdminInput): Promise<AuthUser>;
@@ -60,6 +67,7 @@ export interface UsersRepository {
   findJuridicaByNit(nit: string): Promise<AuthUser | null>;
   findAdminByEmail(email: string): Promise<AuthUser | null>;
   findById(userId: string): Promise<AuthUser | null>;
+  findPrivacyConsent(userId: string): Promise<PrivacyConsent | null>;
   listPendingJuridica(
     limit: number,
     cursor?: CursorPayload,
@@ -85,12 +93,16 @@ export class PrismaUsersRepository implements UsersRepository {
   async findOrCreateNatural(
     phoneE164: string,
     firebaseUid: string | null,
+    privacyPolicyVersion: string,
   ): Promise<AuthUser> {
     const keys = this.requireKeys();
     const phoneHash = phoneLookupHash(phoneE164, keys.pepper);
     const id = randomUUID();
     const rows = await this.prisma.db.$queryRaw<UserRow[]>`
-      INSERT INTO users (id, role, phone_enc, phone_hash, firebase_uid, verified, created_at, updated_at)
+      INSERT INTO users (
+        id, role, phone_enc, phone_hash, firebase_uid, verified,
+        privacy_policy_version, privacy_policy_accepted_at, created_at, updated_at
+      )
       VALUES (
         ${id}::uuid,
         'NATURAL'::"Role",
@@ -98,11 +110,15 @@ export class PrismaUsersRepository implements UsersRepository {
         ${phoneHash},
         ${firebaseUid},
         true,
+        ${privacyPolicyVersion},
+        NOW(),
         NOW(),
         NOW()
       )
       ON CONFLICT (phone_hash) DO UPDATE SET
         firebase_uid = COALESCE(EXCLUDED.firebase_uid, users.firebase_uid),
+        privacy_policy_version = COALESCE(users.privacy_policy_version, EXCLUDED.privacy_policy_version),
+        privacy_policy_accepted_at = COALESCE(users.privacy_policy_accepted_at, EXCLUDED.privacy_policy_accepted_at),
         updated_at = NOW()
       RETURNING id, role, verified, entity_type
     `;
@@ -119,7 +135,9 @@ export class PrismaUsersRepository implements UsersRepository {
       const rows = await this.prisma.db.$queryRaw<UserRow[]>`
         INSERT INTO users (
           id, role, email_enc, email_hash, nit_enc, nit_hash,
-          entity_type, verified, firebase_uid, created_at, updated_at
+          entity_type, verified, firebase_uid,
+          privacy_policy_version, privacy_policy_accepted_at,
+          created_at, updated_at
         )
         VALUES (
           ${id}::uuid,
@@ -131,6 +149,8 @@ export class PrismaUsersRepository implements UsersRepository {
           ${entityType}::"EntityType",
           false,
           ${input.firebaseUid},
+          ${input.privacyPolicyVersion},
+          NOW(),
           NOW(),
           NOW()
         )
@@ -215,6 +235,21 @@ export class PrismaUsersRepository implements UsersRepository {
       LIMIT 1
     `;
     return toAuthUser(rows[0]);
+  }
+
+  async findPrivacyConsent(userId: string): Promise<PrivacyConsent | null> {
+    const rows = await this.prisma.db.$queryRaw<
+      {
+        privacy_policy_version: string | null;
+        privacy_policy_accepted_at: Date | null;
+      }[]
+    >`
+      SELECT privacy_policy_version, privacy_policy_accepted_at
+      FROM users
+      WHERE id = ${userId}::uuid
+      LIMIT 1
+    `;
+    return toPrivacyConsent(rows[0]);
   }
 
   async listPendingJuridica(
@@ -308,18 +343,21 @@ export class InMemoryUsersRepository implements UsersRepository {
   private readonly nits = new Map<string, string>();
   private readonly entityTypes = new Map<string, EntityTypeValue>();
   private readonly createdAt = new Map<string, Date>();
+  private readonly privacyConsent = new Map<string, PrivacyConsent>();
 
   constructor(private readonly config: ConfigService) {}
 
   findOrCreateNatural(
     phoneE164: string,
     firebaseUid: string | null,
+    privacyPolicyVersion: string,
   ): Promise<AuthUser> {
     void firebaseUid;
     const phoneHash = phoneLookupHash(phoneE164, this.pepper());
     const existingId = this.byPhoneHash.get(phoneHash);
     const existing = existingId ? this.byId.get(existingId) : undefined;
     if (existing) {
+      this.rememberConsent(existing.id, privacyPolicyVersion);
       return Promise.resolve(existing);
     }
     const created: AuthUser = {
@@ -330,6 +368,7 @@ export class InMemoryUsersRepository implements UsersRepository {
     this.byId.set(created.id, created);
     this.byPhoneHash.set(phoneHash, created.id);
     this.createdAt.set(created.id, new Date());
+    this.rememberConsent(created.id, privacyPolicyVersion);
     return Promise.resolve(created);
   }
 
@@ -352,6 +391,7 @@ export class InMemoryUsersRepository implements UsersRepository {
     this.nits.set(created.id, input.nit);
     this.entityTypes.set(created.id, input.entityType);
     this.createdAt.set(created.id, new Date());
+    this.rememberConsent(created.id, input.privacyPolicyVersion);
     return Promise.resolve(created);
   }
 
@@ -396,6 +436,10 @@ export class InMemoryUsersRepository implements UsersRepository {
 
   findById(userId: string): Promise<AuthUser | null> {
     return Promise.resolve(this.byId.get(userId) ?? null);
+  }
+
+  findPrivacyConsent(userId: string): Promise<PrivacyConsent | null> {
+    return Promise.resolve(this.privacyConsent.get(userId) ?? null);
   }
 
   listPendingJuridica(
@@ -449,6 +493,16 @@ export class InMemoryUsersRepository implements UsersRepository {
     return Promise.resolve(true);
   }
 
+  private rememberConsent(userId: string, version: string): void {
+    if (this.privacyConsent.has(userId)) {
+      return;
+    }
+    this.privacyConsent.set(userId, {
+      version,
+      acceptedAt: new Date().toISOString(),
+    });
+  }
+
   private juridica(id: string | undefined): AuthUser | null {
     if (!id) {
       return null;
@@ -487,6 +541,23 @@ function toAuthUser(row: UserRow | undefined): AuthUser | null {
     role,
     verified: row.verified,
     ...(entityType ? { entityType } : {}),
+  };
+}
+
+function toPrivacyConsent(
+  row:
+    | {
+        privacy_policy_version: string | null;
+        privacy_policy_accepted_at: Date | null;
+      }
+    | undefined,
+): PrivacyConsent | null {
+  if (!row?.privacy_policy_version || !row.privacy_policy_accepted_at) {
+    return null;
+  }
+  return {
+    version: row.privacy_policy_version,
+    acceptedAt: new Date(row.privacy_policy_accepted_at).toISOString(),
   };
 }
 

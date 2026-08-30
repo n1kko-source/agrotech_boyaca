@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { LegalController } from '../legal/legal.controller';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -10,6 +11,11 @@ import {
   OtpService,
   randomOtpCode,
 } from './otp/otp.service';
+import { DELETION_REQUESTS } from './privacy/deletion-request';
+import {
+  MemoryDeletionRequestStore,
+  PrismaDeletionRequestStore,
+} from './privacy/deletion-request.store';
 import { TokenService } from './tokens/token.service';
 import {
   InMemoryUsersRepository,
@@ -18,7 +24,7 @@ import {
 } from './users/users.repository';
 
 @Module({
-  controllers: [AuthController],
+  controllers: [AuthController, LegalController],
   providers: [
     AuthService,
     OtpService,
@@ -36,7 +42,22 @@ import {
         return new InMemoryUsersRepository(config);
       },
     },
+    {
+      provide: DELETION_REQUESTS,
+      inject: [PrismaService, ConfigService],
+      useFactory: (prisma: PrismaService, config: ConfigService) => {
+        if (prisma.enabled || config.get<string>('NODE_ENV') === 'production') {
+          return new PrismaDeletionRequestStore(prisma);
+        }
+        return new MemoryDeletionRequestStore();
+      },
+    },
   ],
-  exports: [TokenService, FirebaseEmailClient, USERS_REPOSITORY],
+  exports: [
+    TokenService,
+    FirebaseEmailClient,
+    USERS_REPOSITORY,
+    DELETION_REQUESTS,
+  ],
 })
 export class AuthModule {}
