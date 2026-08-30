@@ -17,6 +17,7 @@ import {
 } from './auth.service';
 import { LoginAdminDto } from './dto/login-admin.dto';
 import { LoginJuridicaDto } from './dto/login-juridica.dto';
+import { LogoutDto } from './dto/logout.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterJuridicaDto } from './dto/register-juridica.dto';
 import { SendOtpDto } from './dto/send-otp.dto';
@@ -90,8 +91,8 @@ export class AuthController {
   @Post('logout')
   @Public()
   @HttpCode(HttpStatus.OK)
-  logout(@Body() dto: RefreshTokenDto): Promise<{ revoked: true }> {
-    return this.auth.logout(dto.refreshToken);
+  logout(@Body() dto: LogoutDto): Promise<{ revoked: true }> {
+    return this.auth.logout(dto.refreshToken, dto.deviceId);
   }
 
   @Get('me')

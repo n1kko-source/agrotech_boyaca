@@ -5,6 +5,7 @@ import { FirebaseEmailClient } from '../../src/auth/email/firebase-email.client'
 import { OtpService } from '../../src/auth/otp/otp.service';
 import { TokenService } from '../../src/auth/tokens/token.service';
 import type { UsersRepository } from '../../src/auth/users/users.repository';
+import { NotificationService } from '../../src/notifications/notifications.service';
 import { PRIVACY_POLICY_VERSION } from '../../src/legal/privacy-policy';
 import { Role } from '../../src/shared/auth/role.enum';
 
@@ -36,6 +37,20 @@ function deletionsStub() {
   };
 }
 
+function notificationsStub(
+  overrides: Partial<NotificationService> = {},
+): NotificationService {
+  return {
+    onLogin: jest.fn().mockResolvedValue(undefined),
+    registerDevice: jest.fn().mockResolvedValue({ registered: true }),
+    send: jest.fn(),
+    pending: jest.fn(),
+    ack: jest.fn(),
+    unregisterDevice: jest.fn(),
+    ...overrides,
+  } as unknown as NotificationService;
+}
+
 describe('AuthService JURIDICA compensation', () => {
   it('deletes the Firebase user if persist fails after signUp', async () => {
     const deleteAccount = jest.fn().mockResolvedValue(undefined);
@@ -58,6 +73,7 @@ describe('AuthService JURIDICA compensation', () => {
       firebase,
       users,
       deletionsStub(),
+      notificationsStub(),
     );
 
     await expect(
@@ -95,6 +111,7 @@ describe('AuthService JURIDICA compensation', () => {
       firebase,
       users,
       deletionsStub(),
+      notificationsStub(),
     );
 
     await expect(
@@ -147,6 +164,7 @@ describe('AuthService refresh and logout', () => {
       {} as FirebaseEmailClient,
       users,
       deletionsStub(),
+      notificationsStub(),
     );
 
     await auth.refresh('refresh-token');
@@ -154,7 +172,8 @@ describe('AuthService refresh and logout', () => {
   });
 
   it('revokes the refresh token on logout', async () => {
-    const revoke = jest.fn().mockResolvedValue(undefined);
+    const revoke = jest.fn().mockResolvedValue('user-1');
+    const unregisterDevice = jest.fn();
     const tokens = tokensStub({ revoke });
     const auth = new AuthService(
       {} as OtpService,
@@ -163,12 +182,58 @@ describe('AuthService refresh and logout', () => {
       {} as FirebaseEmailClient,
       usersStub(),
       deletionsStub(),
+      notificationsStub({ unregisterDevice }),
     );
 
     await expect(auth.logout('refresh-token')).resolves.toEqual({
       revoked: true,
     });
     expect(revoke).toHaveBeenCalledWith('refresh-token');
+    expect(unregisterDevice).not.toHaveBeenCalled();
+  });
+
+  it('revokes the device after refresh when deviceId is present', async () => {
+    const revoke = jest.fn().mockResolvedValue('user-1');
+    const unregisterDevice = jest.fn().mockResolvedValue({ revoked: true });
+    const tokens = tokensStub({ revoke });
+    const auth = new AuthService(
+      {} as OtpService,
+      tokens,
+      {} as ConfigService,
+      {} as FirebaseEmailClient,
+      usersStub(),
+      deletionsStub(),
+      notificationsStub({ unregisterDevice }),
+    );
+
+    await expect(
+      auth.logout('refresh-token', 'device-siachoque-1'),
+    ).resolves.toEqual({ revoked: true });
+    expect(revoke).toHaveBeenCalledWith('refresh-token');
+    expect(unregisterDevice).toHaveBeenCalledWith(
+      'user-1',
+      'device-siachoque-1',
+    );
+  });
+
+  it('logout still succeeds if device revoke fails', async () => {
+    const revoke = jest.fn().mockResolvedValue('user-1');
+    const tokens = tokensStub({ revoke });
+    const auth = new AuthService(
+      {} as OtpService,
+      tokens,
+      {} as ConfigService,
+      {} as FirebaseEmailClient,
+      usersStub(),
+      deletionsStub(),
+      notificationsStub({
+        unregisterDevice: jest.fn().mockRejectedValue(new Error('store down')),
+      }),
+    );
+
+    await expect(
+      auth.logout('refresh-token', 'device-siachoque-1'),
+    ).resolves.toEqual({ revoked: true });
   });
 });
 
@@ -183,6 +248,7 @@ describe('AuthService privacy consent (Ley 1581)', () => {
       {} as FirebaseEmailClient,
       usersStub({ findOrCreateNatural }),
       deletionsStub(),
+      notificationsStub(),
     );
 
     await expect(
@@ -205,6 +271,7 @@ describe('AuthService privacy consent (Ley 1581)', () => {
       { signUp } as unknown as FirebaseEmailClient,
       usersStub(),
       deletionsStub(),
+      notificationsStub(),
     );
 
     await expect(
@@ -239,6 +306,7 @@ describe('AuthService privacy consent (Ley 1581)', () => {
       firebase,
       usersStub({ createJuridica }),
       deletionsStub(),
+      notificationsStub(),
     );
 
     await auth.registerJuridica({
@@ -264,11 +332,181 @@ describe('AuthService privacy consent (Ley 1581)', () => {
       {} as FirebaseEmailClient,
       usersStub(),
       deletions,
+      notificationsStub(),
     );
 
     await expect(auth.requestDeletion('user-1')).resolves.toEqual({
       requested: true,
     });
     expect(deletions.request).toHaveBeenCalledWith('user-1');
+  });
+});
+
+describe('AuthService FCM bind on login', () => {
+  const FCM_TOKEN = 'fcm-test-token-android-01';
+  const DEVICE_ID = 'device-siachoque-1';
+
+  it('registers the device after NATURAL OTP verify', async () => {
+    const onLogin = jest.fn().mockResolvedValue(undefined);
+    const issue = jest.fn().mockResolvedValue({
+      accessToken: 'a',
+      refreshToken: 'r',
+      expiresIn: 900,
+      tokenType: 'Bearer',
+    });
+    const auth = new AuthService(
+      {
+        verify: jest.fn().mockResolvedValue({ firebaseUid: 'fb-n' }),
+      } as unknown as OtpService,
+      { issue } as unknown as TokenService,
+      { get: () => 'pepper' } as unknown as ConfigService,
+      {} as FirebaseEmailClient,
+      usersStub({
+        findOrCreateNatural: jest.fn().mockResolvedValue({
+          id: 'nat-1',
+          role: Role.NATURAL,
+          verified: true,
+        }),
+      }),
+      deletionsStub(),
+      notificationsStub({ onLogin }),
+    );
+
+    await auth.verifyOtp({
+      phone: '+573001112233',
+      code: '123456',
+      acceptPrivacyPolicy: true,
+      fcmToken: FCM_TOKEN,
+      deviceId: DEVICE_ID,
+    });
+    expect(onLogin).toHaveBeenCalledWith('nat-1', {
+      token: FCM_TOKEN,
+      deviceId: DEVICE_ID,
+    });
+  });
+
+  it('returns JWT without waiting for FCM bind', async () => {
+    const onLogin = jest
+      .fn()
+      .mockReturnValue(new Promise<void>(() => undefined));
+    const issue = jest.fn().mockResolvedValue({
+      accessToken: 'a',
+      refreshToken: 'r',
+      expiresIn: 900,
+      tokenType: 'Bearer',
+    });
+    const auth = new AuthService(
+      {
+        verify: jest.fn().mockResolvedValue({ firebaseUid: 'fb-n' }),
+      } as unknown as OtpService,
+      { issue } as unknown as TokenService,
+      { get: () => 'pepper' } as unknown as ConfigService,
+      {} as FirebaseEmailClient,
+      usersStub({
+        findOrCreateNatural: jest.fn().mockResolvedValue({
+          id: 'nat-1',
+          role: Role.NATURAL,
+          verified: true,
+        }),
+      }),
+      deletionsStub(),
+      notificationsStub({ onLogin }),
+    );
+
+    await expect(
+      auth.verifyOtp({
+        phone: '+573001112233',
+        code: '123456',
+        acceptPrivacyPolicy: true,
+        fcmToken: FCM_TOKEN,
+        deviceId: DEVICE_ID,
+      }),
+    ).resolves.toMatchObject({ accessToken: 'a' });
+    expect(onLogin).toHaveBeenCalled();
+  });
+
+  it('login JURIDICA returns JWT without waiting for FCM bind', async () => {
+    const onLogin = jest
+      .fn()
+      .mockReturnValue(new Promise<void>(() => undefined));
+    const issue = jest.fn().mockResolvedValue({
+      accessToken: 'a',
+      refreshToken: 'r',
+      expiresIn: 3600,
+      tokenType: 'Bearer',
+    });
+    const auth = new AuthService(
+      {} as OtpService,
+      { issue } as unknown as TokenService,
+      {} as ConfigService,
+      {
+        signIn: jest.fn().mockResolvedValue({
+          localId: 'fb-j',
+          idToken: 'id-tok',
+          emailVerified: true,
+        }),
+      } as unknown as FirebaseEmailClient,
+      usersStub({
+        findJuridicaByEmail: jest.fn().mockResolvedValue({
+          id: 'org-1',
+          role: Role.JURIDICA,
+          verified: true,
+          entityType: 'cooperativa',
+        }),
+      }),
+      deletionsStub(),
+      notificationsStub({ onLogin }),
+    );
+
+    await expect(
+      auth.loginJuridica({
+        email: EMAIL,
+        password: PASSWORD,
+        fcmToken: FCM_TOKEN,
+        deviceId: DEVICE_ID,
+      }),
+    ).resolves.toMatchObject({ accessToken: 'a' });
+    expect(onLogin).toHaveBeenCalledWith('org-1', {
+      token: FCM_TOKEN,
+      deviceId: DEVICE_ID,
+    });
+  });
+
+  it('still issues JWT if FCM bind fails', async () => {
+    const issue = jest.fn().mockResolvedValue({
+      accessToken: 'a',
+      refreshToken: 'r',
+      expiresIn: 900,
+      tokenType: 'Bearer',
+    });
+    const auth = new AuthService(
+      {
+        verify: jest.fn().mockResolvedValue({ firebaseUid: 'fb-n' }),
+      } as unknown as OtpService,
+      { issue } as unknown as TokenService,
+      { get: () => 'pepper' } as unknown as ConfigService,
+      {} as FirebaseEmailClient,
+      usersStub({
+        findOrCreateNatural: jest.fn().mockResolvedValue({
+          id: 'nat-1',
+          role: Role.NATURAL,
+          verified: true,
+        }),
+      }),
+      deletionsStub(),
+      notificationsStub({
+        onLogin: jest.fn().mockRejectedValue(new Error('fcm down')),
+      }),
+    );
+
+    await expect(
+      auth.verifyOtp({
+        phone: '+573001112233',
+        code: '123456',
+        acceptPrivacyPolicy: true,
+        fcmToken: FCM_TOKEN,
+        deviceId: DEVICE_ID,
+      }),
+    ).resolves.toMatchObject({ accessToken: 'a' });
   });
 });

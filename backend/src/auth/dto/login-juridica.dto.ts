@@ -1,6 +1,7 @@
 import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
+import { OptionalFcmDeviceDto } from '../../notifications/dto/optional-fcm-device.dto';
 
-export class LoginJuridicaDto {
+export class LoginJuridicaDto extends OptionalFcmDeviceDto {
   @IsEmail()
   email!: string;
 

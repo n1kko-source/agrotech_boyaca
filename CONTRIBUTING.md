@@ -1,5 +1,9 @@
 # Guía de contribución — AgroTech Boyacá
 
+Antes de implementar o de contradecir un ticket, leer [`docs/BASE_INFRAESTRUCTURA.md`](docs/BASE_INFRAESTRUCTURA.md). Ese archivo es el contrato del repo. **El código actual manda.**
+
+Módulos backend **ya en código**: Shared, Prisma, Auth, Admin, Comunidad, Commodities, Notifications (FCM). Noticias (contenido/WebSocket), Guías y Sync están previstos: no inventarlos porque el ticket los nombre. Host de la API: solo Render.
+
 ## Ramas
 
 Usar prefijo + ID de Jira + descripción corta en kebab-case:

@@ -1,7 +1,7 @@
 # AgroTech Boyacá — Contexto arquitectónico
 
 > Guía base del proyecto. **El código en este repo manda.** Si un ticket Jira contradice lo implementado, se sigue el código y se actualiza este archivo en el mismo cambio.
-> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41), `AdminModule`, FTS de comunidad (AG-21) y precios de commodities (AG-23).
+> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41), `AdminModule`, FTS de comunidad (AG-21), precios de commodities (AG-23) y push FCM (AG-24).
 
 ## Host de ejecución (canónico)
 
@@ -67,7 +67,7 @@ ADMIN no es usuario de la app rural: opera contra la API (Postman / curl / futur
 - Desarrollo directo como app nativa Android con Flutter
 - Offline-first con SQLite local (`sqflite`)
 - Sincronización con backend al recuperar señal vía `/sync` (módulo aún no implementado)
-- Push notifications nativas vía FCM (infra lista; módulo de noticias no implementado)
+- Push notifications nativas vía FCM (`NotificationsModule`; módulo de noticias no implementado)
 - **Fase 2:** mismo codebase Flutter compila para iOS sin reescritura
 - PWA descartada: Service Workers poco confiables en 2G/3G rural
 
@@ -79,7 +79,7 @@ ADMIN no es usuario de la app rural: opera contra la API (Postman / curl / futur
 
 **Justificación monolito:** evita latencia inter-servicio bajo 2G/3G, reduce complejidad operativa en fase MVP, extractable a microservicios cuando la carga lo justifique.
 
-Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `AuthModule`, `AdminModule`, `ComunidadModule`, `CommoditiesModule`.
+Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `NotificationsModule`, `AuthModule`, `AdminModule`, `ComunidadModule`, `CommoditiesModule`.
 
 ### 4.1 Módulos — implementados
 
@@ -91,12 +91,13 @@ Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `AuthModule`, `AdminM
 | AdminModule | Operador: listar JURIDICA pendientes · `PATCH` verify · auditoría UUID · email de aviso |
 | ComunidadModule | Posts de marketplace · perfiles públicos productor/comprador · FTS PostgreSQL (`unaccent` + `pg_trgm`). Matching y mensajería aún no |
 | CommoditiesModule | Precio vigente COP por producto+región · cache Redis TTL 60 s · invalidación al upsert. Solo JURIDICA verificada escribe |
+| NotificationsModule | FCM HTTP v1 · registro de token por dispositivo · `NotificationService.send(userId, payload)` (global, lo inyectan Comunidad/Commodities) · inbox Postgres si el dispositivo está offline · limpieza de tokens inválidos |
 
 ### 4.2 Módulos — previstos (aún no hay código)
 
 | Módulo | Responsabilidad |
 |---|---|
-| NoticiasModule | FCM push · WebSocket Gateway · Alertas · Clima |
+| NoticiasModule | WebSocket Gateway · Alertas · Clima (el push FCM vive en `NotificationsModule`) |
 | GuiasModule | PDF/Audio metadata · Entrega low-bandwidth (R2) |
 | SyncModule | `POST /sync` · batch offline · conflicto LWW |
 
@@ -109,13 +110,13 @@ Público (`@Public()`), salvo `GET /auth/me` y `POST /auth/privacy/deletion-requ
 | Método | Ruta | Quién | Resultado |
 |---|---|---|---|
 | `POST` | `/auth/otp/send` | NATURAL | Envía OTP (Firebase o modo local). Rate limit estricto |
-| `POST` | `/auth/otp/verify` | NATURAL | `{ phone, code, acceptPrivacyPolicy: true }`. JWT 15 min + refresh 7 d. Sin consentimiento → `400`. Persiste versión de política + timestamp (no se sobrescribe en logins posteriores) |
+| `POST` | `/auth/otp/verify` | NATURAL | `{ phone, code, acceptPrivacyPolicy: true, fcmToken?, deviceId? }`. JWT 15 min + refresh 7 d. Sin consentimiento → `400`. Persiste versión de política + timestamp (no se sobrescribe en logins posteriores). Si vienen `fcmToken`+`deviceId`, registra el dispositivo **sin `await`** (fire-and-forget: el JWT vuelve antes del flush FCM; errores solo a log, sin PII ni `fcmToken`) |
 | `POST` | `/auth/register/juridica` | JURIDICA | `{ email, password, nit, entityType, acceptPrivacyPolicy: true }`. Firebase `signUp` + mail de verificación. Fila `verified = false`. Si Postgres falla tras Firebase → `accounts:delete`. Sin consentimiento → `400` |
 | `POST` | `/auth/register/juridica/resend` | JURIDICA | Reenvía oob de email |
-| `POST` | `/auth/login/juridica` | JURIDICA | JWT 60 min + refresh 30 d. `403` si falta email Firebase o `verified` |
+| `POST` | `/auth/login/juridica` | JURIDICA | JWT 60 min + refresh 30 d. `403` si falta email Firebase o `verified`. `fcmToken`+`deviceId` opcionales (mismo bind fire-and-forget que NATURAL) |
 | `POST` | `/auth/login/admin` | ADMIN | JWT 60 min + refresh 7 d. Semilla CLI, no hay `POST /auth/register/admin` |
 | `POST` | `/auth/refresh` | los tres | Rota el refresh con `GETDEL` (atómico). Un refresh vivo por usuario. Respeta TTL del **rol**. JURIDICA deja de rotar si `verified` pasa a `false` |
-| `POST` | `/auth/logout` | los tres | Revoca el refresh actual y el índice de sesión en Redis |
+| `POST` | `/auth/logout` | los tres | Revoca el refresh actual y el índice de sesión en Redis. `deviceId` opcional (8–128 chars); si viene, baja ese token **después** de revocar el refresh (best-effort: fallo de store no aborta el logout). Sigue existiendo `DELETE /notifications/devices` |
 | `GET` | `/auth/me` | JWT (cualquier rol autenticado) | `{ sub, role, entityType? }`. Sin `@Roles`: basta el Bearer |
 | `POST` | `/auth/privacy/deletion-request` | JWT (cualquier rol autenticado) | Habeas data: `{ requested: true }`. Idempotente. No borra la cuenta; soporte cumple a mano (MVP) |
 | `GET` | `/legal/privacy-policy` | público | `{ version, title, acceptLabel, markdown }`. Texto Ley 1581 para el checkbox |
@@ -179,6 +180,23 @@ Cache: `GET` Redis → miss → Postgres → `SET` 60 s. POST hace `DEL` de esa 
 
 Instrumentación Upstash (10.000 cmds/día): contador **en proceso** (no un `INCR` extra). `GET /health` incluye `{ redis: { ops, day, limit: 10000 } }` (`day` UTC). Pino avisa al 80 % y al tope. Throttle + KV (OTP, refresh, cache de precios) suman al mismo meter.
 
+### 4.4.3 Notifications — contrato HTTP (AG-24)
+
+Push nativo Android vía FCM HTTP v1. El módulo es **global**: Comunidad y Commodities inyectan `NotificationService` y llaman `send(userId, payload)` sin HTTP. No hay endpoint para disparar un push a otro usuario. ADMIN no usa la app rural; `POST /auth/login/admin` no acepta `fcmToken`.
+
+JWT de cualquier rol autenticado. Sin token → `401`. `fcmToken` no es PII de Ley 1581; igual se redacta en logs y no se devuelve en respuestas.
+
+| Método | Ruta | Quién | Resultado |
+|---|---|---|---|
+| `PUT` | `/notifications/devices` | JWT | Body `{ fcmToken, deviceId }`. Upsert por (`userId`, `deviceId`). Un token que ya existía en otro usuario se mueve. Reintenta FCM de la cola `PENDING`. `{ registered: true }` |
+| `DELETE` | `/notifications/devices` | JWT | Body `{ deviceId }`. Baja el token de ese dispositivo. `{ revoked: true }` |
+| `GET` | `/notifications/pending` | JWT | Inbox `PENDING` **y** `SENT` no acked (hasta 50, máx. 28 días). `{ items: [{ id, title, body, data, createdAt }] }`. `SENT` = FCM aceptó, no que el usuario lo viera. El cliente deduce duplicados FCM con `data.notificationId` |
+| `POST` | `/notifications/pending/ack` | JWT | Body `{ ids: uuid[] }`. Único paso a `DELIVERED`. `{ acked: n }` |
+
+`send(userId, { title, body, data? })`: siempre inserta en `notifications`. Si hay token y FCM acepta → `SENT` (FCM guarda hasta 28 días si el teléfono está sin red). Si no hay token o FCM no responde → `PENDING`; al reconectar el cliente registra el token (login o `PUT /devices`) y/o lee `GET /pending`. Tokens se borran solo con `UNREGISTERED`, `NOT_FOUND` o `SENDER_ID_MISMATCH`. Un HTTP 400 / `INVALID_ARGUMENT` genérico no limpia el token (`unavailable`). Sin credenciales Firebase, el cliente HTTP no se usa (log) y todo queda `PENDING` (inbox). No usa Redis (no suma al cupo Upstash).
+
+Login NATURAL / JURIDICA: `fcmToken` y `deviceId` van juntos o no van. El bind FCM es fire-and-forget: no bloquea el JWT. Un bind fallido no revierte el JWT.
+
 ### 4.5 Datos (Ley 1581)
 
 Tabla `users`: plaintext de teléfono / email / NIT **nunca** se guarda. Ciphertext `pgcrypto` AES-256 (`pgp_sym_encrypt`); lookup HMAC-SHA256 con `PII_HASH_PEPPER`. Constraints: NATURAL exige teléfono; JURIDICA exige email+NIT+`entity_type`; ADMIN exige email y no lleva NIT ni `entity_type`.
@@ -193,7 +211,9 @@ Tablas `posts` y `marketplace_profiles`: listados públicos (título, rubro, mun
 
 Tabla `commodity_prices`: `producto` + `region` únicos, `precio` COP, `unidad`, `reported_by` (UUID). Sin PII.
 
-Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, claves.
+Tablas `device_tokens` y `notifications`: token FCM + inbox de push. Sin teléfono/email/NIT. `ON DELETE CASCADE` con `users`. Estados: `PENDING` \| `SENT` \| `DELIVERED`.
+
+Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, `fcmToken`, claves.
 
 ### 4.6 Principios API
 
@@ -216,7 +236,7 @@ Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, claves.
 | OTP SMS | Firebase Authentication | 10.000 SMS/mes |
 | Email/password | Firebase Authentication | JURIDICA + ADMIN |
 | Email transaccional | Resend | Aviso “cuenta verificada” (AG-17) |
-| Push | Firebase FCM | Gratuito; módulo noticias no implementado |
+| Push | Firebase FCM HTTP v1 | Gratuito; `NotificationsModule`. Noticias (contenido) no implementado |
 | Anti-sleep | Cron-job.org → `GET /health` cada 10 min | — |
 | Backups PG | GitHub Actions → R2 `backups/postgres/` | retención 7 días; Free no tiene PITR |
 
@@ -227,7 +247,7 @@ Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, claves.
 ## 6. Seguridad y cumplimiento
 
 - **Ley 1581 (Habeas Data):** consentimiento explícito (`acceptPrivacyPolicy`) en registro NATURAL y JURIDICA, con versión de política + timestamp. Teléfono, NIT y email cifrados en reposo (pgcrypto AES-256). Lookup por HMAC. Nunca en logs ni en respuestas de `/admin/juridica/pending` (NIT enmascarado) ni de `/admin/privacy/deletion-requests`. Dumps de Postgres en R2 (`backups/`) son PII; bucket privado. El titular pide supresión con `POST /auth/privacy/deletion-request`.
-- **JWT:** RS256. TTL por rol (§ 4.3). Un refresh vivo por usuario; rotación con `GETDEL`; logout borra refresh e índice de sesión. Refresh de JURIDICA relee `verified`.
+- **JWT:** RS256. TTL por rol (§ 4.3). Un refresh vivo por usuario; rotación con `GETDEL`; logout borra refresh e índice de sesión (`deviceId` opcional, best-effort). Refresh de JURIDICA relee `verified`.
 - **Privilegios:** no existe `POST /auth/register/admin`. Un API key compartido no identifica operador; el audit usa `sub` del JWT ADMIN.
 - **Rate limiting:** Throttle por IP vía Redis (Upstash); OTP y registro JURIDICA tienen límites más estrictos en el controller. El cupo diario de 10.000 comandos se ve en `GET /health` → `redis.ops` (UTC).
 - **OWASP:** Helmet, ValidationPipe global (`whitelist` + `forbidNonWhitelisted`), sanitización de inputs.

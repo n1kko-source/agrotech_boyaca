@@ -12,6 +12,8 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PRIVACY_POLICY_VERSION } from '../legal/privacy-policy';
+import { fcmDeviceFrom } from '../notifications/dto/optional-fcm-device.dto';
+import { NotificationService } from '../notifications/notifications.service';
 import { Role } from '../shared/auth/role.enum';
 import { LoginAdminDto } from './dto/login-admin.dto';
 import { LoginJuridicaDto } from './dto/login-juridica.dto';
@@ -58,6 +60,7 @@ export class AuthService {
     private readonly firebaseEmail: FirebaseEmailClient,
     @Inject(USERS_REPOSITORY) private readonly users: UsersRepository,
     @Inject(DELETION_REQUESTS) private readonly deletions: DeletionRequestStore,
+    private readonly notifications: NotificationService,
   ) {}
 
   async sendOtp(dto: SendOtpDto): Promise<SendOtpResult> {
@@ -84,7 +87,13 @@ export class AuthService {
         verified.firebaseUid,
         PRIVACY_POLICY_VERSION,
       );
-      return this.tokens.issue(user.id, user.role, user.entityType);
+      const tokens = await this.tokens.issue(
+        user.id,
+        user.role,
+        user.entityType,
+      );
+      this.bindDevice(user.id, dto);
+      return tokens;
     } catch (err) {
       return mapOtpVerifyError(err);
     }
@@ -182,7 +191,13 @@ export class AuthService {
       if (!user.verified) {
         throw new ForbiddenException('Forbidden');
       }
-      return this.tokens.issue(user.id, user.role, user.entityType);
+      const tokens = await this.tokens.issue(
+        user.id,
+        user.role,
+        user.entityType,
+      );
+      this.bindDevice(user.id, dto);
+      return tokens;
     } catch (err) {
       return mapEmailLoginError(err);
     }
@@ -214,14 +229,33 @@ export class AuthService {
     return this.tokens.issue(user.id, user.role, user.entityType);
   }
 
-  async logout(refreshToken: string): Promise<{ revoked: true }> {
-    await this.tokens.revoke(refreshToken);
+  async logout(
+    refreshToken: string,
+    deviceId?: string,
+  ): Promise<{ revoked: true }> {
+    const userId = await this.tokens.revoke(refreshToken);
+    if (deviceId && userId) {
+      try {
+        await this.notifications.unregisterDevice(userId, deviceId);
+      } catch {
+        this.logger.warn(`FCM device revoke failed user=${userId}`);
+      }
+    }
     return { revoked: true };
   }
 
   async requestDeletion(userId: string): Promise<{ requested: true }> {
     await this.deletions.request(userId);
     return { requested: true };
+  }
+
+  private bindDevice(
+    userId: string,
+    dto: { fcmToken?: string; deviceId?: string },
+  ): void {
+    void this.notifications.onLogin(userId, fcmDeviceFrom(dto)).catch(() => {
+      this.logger.warn(`FCM bind failed user=${userId}`);
+    });
   }
 
   private hashPhone(phoneE164: string): string {
