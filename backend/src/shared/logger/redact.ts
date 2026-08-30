@@ -17,6 +17,8 @@ const SENSITIVE_KEYS = new Set([
   'pii_encryption_key',
   'pii_hash_pepper',
   'jwt_private_key',
+  'openweather_api_key',
+  'clima_job_secret',
   'fcmtoken',
   'refreshtoken',
   'refresh_token',
@@ -74,4 +76,7 @@ export const PINO_REDACT_PATHS = [
   'req.body.playIntegrityToken',
   'req.body.fcmToken',
   '*.fcmToken',
+  '*.OPENWEATHER_API_KEY',
+  '*.CLIMA_JOB_SECRET',
+  'req.headers.x-clima-job-secret',
 ];

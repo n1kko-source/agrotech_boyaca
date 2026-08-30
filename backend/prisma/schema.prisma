@@ -44,6 +44,7 @@ model User {
   commodityPrices  CommodityPrice[]
   deviceTokens     DeviceToken[]
   notifications    Notification[]
+  weatherAlerts    WeatherAlert[]
 
   @@map("users")
 }
@@ -160,4 +161,23 @@ model Notification {
 
   @@index([userId, status, createdAt])
   @@map("notifications")
+}
+
+/// Configurable weather threshold per user + municipality. Not PII.
+/// `kind` is validated in the API (`rain` | `frost`), stored as text.
+model WeatherAlert {
+  id          String    @id @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  municipio   String
+  kind        String
+  enabled     Boolean   @default(true)
+  lastFiredAt DateTime? @map("last_fired_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, municipio, kind])
+  @@index([enabled, municipio])
+  @@map("weather_alerts")
 }

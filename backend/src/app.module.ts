@@ -3,6 +3,7 @@ import { AdminModule } from './admin/admin.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
+import { ClimaModule } from './clima/clima.module';
 import { CommoditiesModule } from './commodities/commodities.module';
 import { ComunidadModule } from './comunidad/comunidad.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -18,6 +19,7 @@ import { SharedModule } from './shared/shared.module';
     AdminModule,
     ComunidadModule,
     CommoditiesModule,
+    ClimaModule,
   ],
   controllers: [AppController],
   providers: [AppService],

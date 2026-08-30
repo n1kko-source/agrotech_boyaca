@@ -1,7 +1,7 @@
 # AgroTech Boyacá — Contexto arquitectónico
 
 > Guía base del proyecto. **El código en este repo manda.** Si un ticket Jira contradice lo implementado, se sigue el código y se actualiza este archivo en el mismo cambio.
-> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41), `AdminModule`, FTS de comunidad (AG-21), precios de commodities (AG-23) y push FCM (AG-24).
+> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41), `AdminModule`, FTS de comunidad (AG-21), precios de commodities (AG-23), push FCM (AG-24) y clima/alertas (AG-25).
 
 ## Host de ejecución (canónico)
 
@@ -79,7 +79,7 @@ ADMIN no es usuario de la app rural: opera contra la API (Postman / curl / futur
 
 **Justificación monolito:** evita latencia inter-servicio bajo 2G/3G, reduce complejidad operativa en fase MVP, extractable a microservicios cuando la carga lo justifique.
 
-Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `NotificationsModule`, `AuthModule`, `AdminModule`, `ComunidadModule`, `CommoditiesModule`.
+Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `NotificationsModule`, `AuthModule`, `AdminModule`, `ComunidadModule`, `CommoditiesModule`, `ClimaModule`.
 
 ### 4.1 Módulos — implementados
 
@@ -91,13 +91,14 @@ Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `NotificationsModule`
 | AdminModule | Operador: listar JURIDICA pendientes · `PATCH` verify · auditoría UUID · email de aviso |
 | ComunidadModule | Posts de marketplace · perfiles públicos productor/comprador · FTS PostgreSQL (`unaccent` + `pg_trgm`). Matching y mensajería aún no |
 | CommoditiesModule | Precio vigente COP por producto+región · cache Redis TTL 60 s · invalidación al upsert. Solo JURIDICA verificada escribe |
-| NotificationsModule | FCM HTTP v1 · registro de token por dispositivo · `NotificationService.send(userId, payload)` (global, lo inyectan Comunidad/Commodities) · inbox Postgres si el dispositivo está offline · limpieza de tokens inválidos |
+| NotificationsModule | FCM HTTP v1 · registro de token por dispositivo · `NotificationService.send(userId, payload)` (global, lo inyectan Comunidad/Commodities/Clima) · inbox Postgres si el dispositivo está offline · limpieza de tokens inválidos |
+| ClimaModule | OpenWeather (current + forecast 5d/3h) por municipio · cache Redis TTL 3 h · alertas `rain`/`frost` · job HTTP → `NotificationService` · WebSocket `/clima` complementario (no sustituye al push) |
 
 ### 4.2 Módulos — previstos (aún no hay código)
 
 | Módulo | Responsabilidad |
 |---|---|
-| NoticiasModule | WebSocket Gateway · Alertas · Clima (el push FCM vive en `NotificationsModule`) |
+| NoticiasModule | Contenido de noticias (el clima, las alertas y el push FCM ya viven en `ClimaModule` / `NotificationsModule`) |
 | GuiasModule | PDF/Audio metadata · Entrega low-bandwidth (R2) |
 | SyncModule | `POST /sync` · batch offline · conflicto LWW |
 
@@ -178,7 +179,7 @@ Precio vigente (un row por `producto`+`region`, COP). JWT de cualquier rol para 
 
 Cache: `GET` Redis → miss → Postgres → `SET` 60 s. POST hace `DEL` de esa clave. Si Redis falla, GET lee Postgres (fail-open; la fuente de verdad no es el cache). OTP/refresh siguen fail-closed.
 
-Instrumentación Upstash (10.000 cmds/día): contador **en proceso** (no un `INCR` extra). `GET /health` incluye `{ redis: { ops, day, limit: 10000 } }` (`day` UTC). Pino avisa al 80 % y al tope. Throttle + KV (OTP, refresh, cache de precios) suman al mismo meter.
+Instrumentación Upstash (10.000 cmds/día): contador **en proceso** (no un `INCR` extra). `GET /health` incluye `{ redis: { ops, day, limit: 10000 } }` (`day` UTC). Pino avisa al 80 % y al tope. Throttle + KV (OTP, refresh, cache de precios, cache de clima) suman al mismo meter.
 
 ### 4.4.3 Notifications — contrato HTTP (AG-24)
 
@@ -197,6 +198,21 @@ JWT de cualquier rol autenticado. Sin token → `401`. `fcmToken` no es PII de L
 
 Login NATURAL / JURIDICA: `fcmToken` y `deviceId` van juntos o no van. El bind FCM es fire-and-forget: no bloquea el JWT. Un bind fallido no revierte el JWT.
 
+### 4.4.4 Clima y alertas — contrato HTTP (AG-25)
+
+Pronóstico por municipio (Boyacá primero vía geocoding OpenWeather) y umbrales configurables. El canal de entrega en 2G/3G es **FCM + inbox** (`NotificationService.send`). El WebSocket `namespace /clima` es opt-in (JWT en `auth.token` o `Authorization`); no sustituye al push ni al GET pending.
+
+JWT de cualquier rol para consultar clima. Crear/listar alertas: `NATURAL` / `JURIDICA` (`ADMIN` → `403`). Sin token → `401`. Sin `OPENWEATHER_API_KEY` → `503` en GET clima. Redis fail-open (TTL **3 h**); si Redis cae se llama a OpenWeather. Fetch a OpenWeather: timeout **5 s** (`AbortSignal`). No usa NLP: el umbral es `kind`.
+
+| Método | Ruta | Quién | Resultado |
+|---|---|---|---|
+| `GET` | `/clima/:municipio` | JWT | Clima actual + 8 slots de forecast (~24 h). `{ municipio, current, forecast, fetchedAt, cached }`. Municipio 2–80 chars. Desconocido → `404` |
+| `POST` | `/alertas` | NATURAL, JURIDICA | Body `{ municipio, kind: "rain" \| "frost", enabled? }`. Upsert por (`userId`, municipio, kind). `{ id, municipio, kind, enabled }` |
+| `GET` | `/alertas` | NATURAL, JURIDICA | Alertas del `sub`. `{ items: [...] }` |
+| `POST` | `/clima/jobs/evaluate` | header `x-clima-job-secret` = `CLIMA_JOB_SECRET` | Público (cron). Agrupa por municipio, reusa el cache, dispara push si el umbral matchea y no se disparó en 12 h. `{ evaluated, fired }`. Secret inválido → `401` |
+
+`rain`: id OpenWeather 2xx/3xx/5xx, `pop ≥ 0.4` o `rainMm > 0` en actual o forecast. `frost`: `tempC ≤ 2`. Job: cron-job.org cada **3 h** (no `@Cron` in-process: Render Free hiberna). WS evento `alerta` al mismo payload que el push.
+
 ### 4.5 Datos (Ley 1581)
 
 Tabla `users`: plaintext de teléfono / email / NIT **nunca** se guarda. Ciphertext `pgcrypto` AES-256 (`pgp_sym_encrypt`); lookup HMAC-SHA256 con `PII_HASH_PEPPER`. Constraints: NATURAL exige teléfono; JURIDICA exige email+NIT+`entity_type`; ADMIN exige email y no lleva NIT ni `entity_type`.
@@ -213,7 +229,9 @@ Tabla `commodity_prices`: `producto` + `region` únicos, `precio` COP, `unidad`,
 
 Tablas `device_tokens` y `notifications`: token FCM + inbox de push. Sin teléfono/email/NIT. `ON DELETE CASCADE` con `users`. Estados: `PENDING` \| `SENT` \| `DELIVERED`.
 
-Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, `fcmToken`, claves.
+Tabla `weather_alerts`: umbral `rain`/`frost` por usuario+municipio. Sin PII. `last_fired_at` evita re-push antes de 12 h.
+
+Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, `fcmToken`, `OPENWEATHER_API_KEY`, `CLIMA_JOB_SECRET`, claves.
 
 ### 4.6 Principios API
 
@@ -237,7 +255,9 @@ Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, `fcmToke
 | Email/password | Firebase Authentication | JURIDICA + ADMIN |
 | Email transaccional | Resend | Aviso “cuenta verificada” (AG-17) |
 | Push | Firebase FCM HTTP v1 | Gratuito; `NotificationsModule`. Noticias (contenido) no implementado |
+| Clima | OpenWeather Current + 5 day / 3 hour | Free; cache Redis 3 h. `OPENWEATHER_API_KEY` |
 | Anti-sleep | Cron-job.org → `GET /health` cada 10 min | — |
+| Job alertas clima | Cron-job.org → `POST /clima/jobs/evaluate` cada 3 h | header `x-clima-job-secret` |
 | Backups PG | GitHub Actions → R2 `backups/postgres/` | retención 7 días; Free no tiene PITR |
 
 **Punto de migración:** al superar ~500 usuarios activos concurrentes → Render pago (sin spin-down) + Supabase Pro + Upstash Pro. El código NestJS no cambia.
