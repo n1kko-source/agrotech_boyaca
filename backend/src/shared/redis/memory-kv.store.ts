@@ -19,6 +19,18 @@ export class MemoryKvStore implements KvStore {
     return Promise.resolve(entry.value);
   }
 
+  getdel(key: string): Promise<string | null> {
+    const entry = this.map.get(key);
+    if (!entry) {
+      return Promise.resolve(null);
+    }
+    this.map.delete(key);
+    if (entry.expiresAt <= this.clock()) {
+      return Promise.resolve(null);
+    }
+    return Promise.resolve(entry.value);
+  }
+
   set(key: string, value: string, ttlSeconds: number): Promise<void> {
     this.map.set(key, {
       value,

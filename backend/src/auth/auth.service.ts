@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Role } from '../shared/auth/role.enum';
+import { LoginAdminDto } from './dto/login-admin.dto';
 import { LoginJuridicaDto } from './dto/login-juridica.dto';
 import { RegisterJuridicaDto } from './dto/register-juridica.dto';
 import { SendOtpDto } from './dto/send-otp.dto';
@@ -77,7 +78,7 @@ export class AuthService {
         phone,
         verified.firebaseUid,
       );
-      return this.tokens.issue(user.id, user.role);
+      return this.tokens.issue(user.id, user.role, user.entityType);
     } catch (err) {
       return mapOtpVerifyError(err);
     }
@@ -173,7 +174,24 @@ export class AuthService {
       if (!user.verified) {
         throw new ForbiddenException('Forbidden');
       }
-      return this.tokens.issue(user.id, user.role);
+      return this.tokens.issue(user.id, user.role, user.entityType);
+    } catch (err) {
+      return mapEmailLoginError(err);
+    }
+  }
+
+  async loginAdmin(dto: LoginAdminDto): Promise<IssuedTokens> {
+    const email = requireEmail(dto.email);
+    try {
+      const signedIn = await this.firebaseEmail.signIn(email, dto.password);
+      if (!signedIn.emailVerified) {
+        throw new ForbiddenException('Forbidden');
+      }
+      const user = await this.users.findAdminByEmail(email);
+      if (!user || user.role !== Role.ADMIN) {
+        throw new UnauthorizedException('Unauthorized');
+      }
+      return this.tokens.issue(user.id, user.role, user.entityType);
     } catch (err) {
       return mapEmailLoginError(err);
     }
@@ -185,7 +203,12 @@ export class AuthService {
     if (!canRefresh(user, payload.role)) {
       throw new UnauthorizedException('Unauthorized');
     }
-    return this.tokens.issue(user.id, user.role);
+    return this.tokens.issue(user.id, user.role, user.entityType);
+  }
+
+  async logout(refreshToken: string): Promise<{ revoked: true }> {
+    await this.tokens.revoke(refreshToken);
+    return { revoked: true };
   }
 
   private hashPhone(phoneE164: string): string {

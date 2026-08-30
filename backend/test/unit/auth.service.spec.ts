@@ -5,6 +5,7 @@ import { FirebaseEmailClient } from '../../src/auth/email/firebase-email.client'
 import { OtpService } from '../../src/auth/otp/otp.service';
 import { TokenService } from '../../src/auth/tokens/token.service';
 import type { UsersRepository } from '../../src/auth/users/users.repository';
+import { Role } from '../../src/shared/auth/role.enum';
 
 const EMAIL = 'coop@example.com';
 const NIT = '8001972684';
@@ -14,9 +15,13 @@ function usersStub(overrides: Partial<UsersRepository> = {}): UsersRepository {
   return {
     findOrCreateNatural: jest.fn(),
     createJuridica: jest.fn(),
+    createAdmin: jest.fn(),
     findJuridicaByEmail: jest.fn().mockResolvedValue(null),
     findJuridicaByNit: jest.fn().mockResolvedValue(null),
+    findAdminByEmail: jest.fn(),
     findById: jest.fn(),
+    listPendingJuridica: jest.fn(),
+    decryptJuridicaEmail: jest.fn(),
     setVerified: jest.fn(),
     ...overrides,
   };
@@ -89,5 +94,65 @@ describe('AuthService JURIDICA compensation', () => {
       }),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(deleteAccount).toHaveBeenCalledWith('id-tok');
+  });
+});
+
+describe('AuthService refresh and logout', () => {
+  const tokensStub = (overrides: Partial<TokenService> = {}): TokenService =>
+    ({
+      issue: jest.fn(),
+      takeRefresh: jest.fn(),
+      revoke: jest.fn().mockResolvedValue(undefined),
+      ...overrides,
+    }) as unknown as TokenService;
+
+  it('reissues refresh with entityType from the JURIDICA profile', async () => {
+    const issue = jest.fn().mockResolvedValue({
+      accessToken: 'a',
+      refreshToken: 'r2',
+      expiresIn: 3600,
+      tokenType: 'Bearer',
+    });
+    const tokens = tokensStub({
+      issue,
+      takeRefresh: jest
+        .fn()
+        .mockResolvedValue({ sub: 'org-1', role: Role.JURIDICA }),
+    });
+    const users = usersStub({
+      findById: jest.fn().mockResolvedValue({
+        id: 'org-1',
+        role: Role.JURIDICA,
+        verified: true,
+        entityType: 'empresa',
+      }),
+    });
+    const auth = new AuthService(
+      {} as OtpService,
+      tokens,
+      {} as ConfigService,
+      {} as FirebaseEmailClient,
+      users,
+    );
+
+    await auth.refresh('refresh-token');
+    expect(issue).toHaveBeenCalledWith('org-1', Role.JURIDICA, 'empresa');
+  });
+
+  it('revokes the refresh token on logout', async () => {
+    const revoke = jest.fn().mockResolvedValue(undefined);
+    const tokens = tokensStub({ revoke });
+    const auth = new AuthService(
+      {} as OtpService,
+      tokens,
+      {} as ConfigService,
+      {} as FirebaseEmailClient,
+      usersStub(),
+    );
+
+    await expect(auth.logout('refresh-token')).resolves.toEqual({
+      revoked: true,
+    });
+    expect(revoke).toHaveBeenCalledWith('refresh-token');
   });
 });

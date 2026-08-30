@@ -7,7 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import { JwtUser } from '../auth/jwt-user';
+import { toJwtUser, type JwtUser } from '../auth/jwt-user';
 import { Role } from '../auth/role.enum';
 import { pemFromEnv } from '../config/pem';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
@@ -49,7 +49,7 @@ export class JwtAuthGuard implements CanActivate {
       if (!payload.sub || !isRole(payload.role)) {
         throw new UnauthorizedException('Unauthorized');
       }
-      request.user = { sub: payload.sub, role: payload.role };
+      request.user = toJwtUser(payload);
       return true;
     } catch {
       throw new UnauthorizedException('Unauthorized');
@@ -66,5 +66,7 @@ function extractBearerToken(header: string | undefined): string | undefined {
 }
 
 function isRole(value: unknown): value is Role {
-  return value === Role.NATURAL || value === Role.JURIDICA;
+  return (
+    value === Role.NATURAL || value === Role.JURIDICA || value === Role.ADMIN
+  );
 }

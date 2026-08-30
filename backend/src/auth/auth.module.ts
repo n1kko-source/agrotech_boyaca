@@ -37,5 +37,6 @@ import {
       },
     },
   ],
+  exports: [TokenService, FirebaseEmailClient, USERS_REPOSITORY],
 })
 export class AuthModule {}

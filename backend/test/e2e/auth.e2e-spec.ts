@@ -89,8 +89,29 @@ describe('Auth OTP NATURAL (e2e)', () => {
       .send({ refreshToken: tokens.refreshToken })
       .expect(200);
 
-    const rotated = refresh.body as { accessToken: string };
-    expect(rotated.accessToken).not.toBe(tokens.accessToken);
+    const rotated = refresh.body as {
+      accessToken: string;
+      refreshToken: string;
+    };
+    expect(rotated.refreshToken).not.toBe(tokens.refreshToken);
+
+    const me = await request(app.getHttpServer())
+      .get('/auth/me')
+      .set('Authorization', `Bearer ${rotated.accessToken}`)
+      .expect(200);
+    const meBody = me.body as { role: string; entityType?: string };
+    expect(meBody.role).toBe('NATURAL');
+    expect(meBody.entityType).toBeUndefined();
+
+    await request(app.getHttpServer())
+      .post('/auth/logout')
+      .send({ refreshToken: rotated.refreshToken })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .send({ refreshToken: rotated.refreshToken })
+      .expect(401);
   });
 });
 
@@ -186,6 +207,25 @@ describe('Auth JURIDICA (e2e)', () => {
     expect(JSON.stringify(login.body)).not.toContain(EMAIL);
     expect(JSON.stringify(login.body)).not.toContain(PASSWORD);
 
+    const me = await request(app.getHttpServer())
+      .get('/auth/me')
+      .set('Authorization', `Bearer ${tokens.accessToken}`)
+      .expect(200);
+    const meBody = me.body as { role: string; entityType?: string };
+    expect(meBody.role).toBe('JURIDICA');
+    expect(meBody.entityType).toBe('cooperativa');
+
+    const loginAgain = await request(app.getHttpServer())
+      .post('/auth/login/juridica')
+      .send({ email: EMAIL, password: PASSWORD })
+      .expect(200);
+    const nextTokens = loginAgain.body as { refreshToken: string };
+
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .send({ refreshToken: tokens.refreshToken })
+      .expect(401);
+
     const resend = await request(app.getHttpServer())
       .post('/auth/register/juridica/resend')
       .send({ email: EMAIL, password: PASSWORD })
@@ -194,7 +234,7 @@ describe('Auth JURIDICA (e2e)', () => {
 
     const refreshOk = await request(app.getHttpServer())
       .post('/auth/refresh')
-      .send({ refreshToken: tokens.refreshToken })
+      .send({ refreshToken: nextTokens.refreshToken })
       .expect(200);
     const rotated = refreshOk.body as { refreshToken: string };
 

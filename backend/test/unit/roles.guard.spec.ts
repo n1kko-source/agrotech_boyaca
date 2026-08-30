@@ -1,8 +1,8 @@
 import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Role } from '../../src/shared/auth/role.enum';
-import { RolesGuard } from '../../src/shared/guards/roles.guard';
 import { JwtUser } from '../../src/shared/auth/jwt-user';
+import { RolesGuard } from '../../src/shared/guards/roles.guard';
 
 describe('RolesGuard', () => {
   const getAllAndOverride = jest.fn();
@@ -35,6 +35,13 @@ describe('RolesGuard', () => {
     );
   });
 
+  it('allows ADMIN when required', () => {
+    getAllAndOverride.mockReturnValue([Role.ADMIN]);
+    expect(guard.canActivate(context({ sub: '1', role: Role.ADMIN }))).toBe(
+      true,
+    );
+  });
+
   it('forbids when the user role does not match', () => {
     getAllAndOverride.mockReturnValue([Role.JURIDICA]);
     expect(() =>
@@ -45,5 +52,14 @@ describe('RolesGuard', () => {
   it('forbids when there is no user', () => {
     getAllAndOverride.mockReturnValue([Role.NATURAL]);
     expect(() => guard.canActivate(context())).toThrow(ForbiddenException);
+  });
+
+  it('does not treat entityType as a role', () => {
+    getAllAndOverride.mockReturnValue([Role.JURIDICA]);
+    expect(
+      guard.canActivate(
+        context({ sub: '1', role: Role.JURIDICA, entityType: 'empresa' }),
+      ),
+    ).toBe(true);
   });
 });

@@ -25,6 +25,16 @@ export function nitLookupHash(nitDigits: string, pepper: string): string {
   return createHmac('sha256', pepper).update(nitDigits).digest('hex');
 }
 
+/** Last 3 body digits + DV, e.g. 8001972684 → ****268-4 */
+export function maskNit(nitDigits: string): string {
+  if (nitDigits.length < 4) {
+    return '****';
+  }
+  const dv = nitDigits.slice(-1);
+  const tail = nitDigits.slice(-4, -1);
+  return `****${tail}-${dv}`;
+}
+
 export function checkDigit(nitBody: string): number {
   let sum = 0;
   const digits = nitBody.split('').reverse();
