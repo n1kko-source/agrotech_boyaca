@@ -1,7 +1,7 @@
 # AgroTech Boyacá — Contexto arquitectónico
 
 > Guía base del proyecto. **El código en este repo manda.** Si un ticket Jira contradice lo implementado, se sigue el código y se actualiza este archivo en el mismo cambio.
-> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41), `AdminModule` y FTS de comunidad (AG-21).
+> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41), `AdminModule`, FTS de comunidad (AG-21) y precios de commodities (AG-23).
 
 ## Host de ejecución (canónico)
 
@@ -79,7 +79,7 @@ ADMIN no es usuario de la app rural: opera contra la API (Postman / curl / futur
 
 **Justificación monolito:** evita latencia inter-servicio bajo 2G/3G, reduce complejidad operativa en fase MVP, extractable a microservicios cuando la carga lo justifique.
 
-Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `AuthModule`, `AdminModule`, `ComunidadModule`.
+Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `AuthModule`, `AdminModule`, `ComunidadModule`, `CommoditiesModule`.
 
 ### 4.1 Módulos — implementados
 
@@ -90,12 +90,12 @@ Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `AuthModule`, `AdminM
 | AuthModule | OTP NATURAL · registro/login JURIDICA · login ADMIN · issue/revoke refresh (una sesión por usuario) · `GET /auth/me` |
 | AdminModule | Operador: listar JURIDICA pendientes · `PATCH` verify · auditoría UUID · email de aviso |
 | ComunidadModule | Posts de marketplace · perfiles públicos productor/comprador · FTS PostgreSQL (`unaccent` + `pg_trgm`). Matching y mensajería aún no |
+| CommoditiesModule | Precio vigente COP por producto+región · cache Redis TTL 60 s · invalidación al upsert. Solo JURIDICA verificada escribe |
 
 ### 4.2 Módulos — previstos (aún no hay código)
 
 | Módulo | Responsabilidad |
 |---|---|
-| CommoditiesModule | Precios en tiempo real · Redis TTL agresivo |
 | NoticiasModule | FCM push · WebSocket Gateway · Alertas · Clima |
 | GuiasModule | PDF/Audio metadata · Entrega low-bandwidth (R2) |
 | SyncModule | `POST /sync` · batch offline · conflicto LWW |
@@ -166,6 +166,19 @@ Listados de marketplace. JWT de cualquier rol para buscar. Crear post o ficha p�
 
 Matching productor/comprador y mensajería siguen previstos; no hay endpoints de hilos ni de match.
 
+### 4.4.2 Commodities — contrato HTTP
+
+Precio vigente (un row por `producto`+`region`, COP). JWT de cualquier rol para consultar. Escribir: solo `JURIDICA` con `verified = true` en Postgres (se relee; el access token no basta si el operador desactivó la cuenta). Sin token → `401`. NATURAL / ADMIN en POST → `403`. Labels se normalizan (trim, minúsculas, espacios colapsados): `Papa criolla` y `papa  criolla` son la misma clave.
+
+| Método | Ruta | Quién | Resultado |
+|---|---|---|---|
+| `POST` | `/commodities/precios` | JURIDICA verificada | Body `{ producto, region, precio, unidad? }`. Upsert. `unidad` default `kg`. `moneda` siempre `COP`. 200 |
+| `GET` | `/commodities/precios?producto=&region=` | JWT | Precio vigente. Cache Redis TTL **60 s**. `cached: true` si vino de cache. Sin fila → `404`. Ambos query params obligatorios |
+
+Cache: `GET` Redis → miss → Postgres → `SET` 60 s. POST hace `DEL` de esa clave. Si Redis falla, GET lee Postgres (fail-open; la fuente de verdad no es el cache). OTP/refresh siguen fail-closed.
+
+Instrumentación Upstash (10.000 cmds/día): contador **en proceso** (no un `INCR` extra). `GET /health` incluye `{ redis: { ops, day, limit: 10000 } }` (`day` UTC). Pino avisa al 80 % y al tope. Throttle + KV (OTP, refresh, cache de precios) suman al mismo meter.
+
 ### 4.5 Datos (Ley 1581)
 
 Tabla `users`: plaintext de teléfono / email / NIT **nunca** se guarda. Ciphertext `pgcrypto` AES-256 (`pgp_sym_encrypt`); lookup HMAC-SHA256 con `PII_HASH_PEPPER`. Constraints: NATURAL exige teléfono; JURIDICA exige email+NIT+`entity_type`; ADMIN exige email y no lleva NIT ni `entity_type`.
@@ -177,6 +190,8 @@ Tabla `verification_events`: solo UUIDs y booleano. Sin PII.
 Tabla `deletion_requests`: `user_id` único (solicitud de supresión). El MVP no ejecuta el borrado; el operador usa `GET /admin/privacy/deletion-requests` y cumple a mano.
 
 Tablas `posts` y `marketplace_profiles`: listados públicos (título, rubro, municipio, bio). Sin PII. FTS en columna generada `search_vector` + índices GIN `pg_trgm` (extensiones `unaccent`, `pg_trgm`).
+
+Tabla `commodity_prices`: `producto` + `region` únicos, `precio` COP, `unidad`, `reported_by` (UUID). Sin PII.
 
 Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, claves.
 
@@ -196,7 +211,7 @@ Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, claves.
 |---|---|---|
 | Backend NestJS | Render | 750 h/mes · sleep 15 min → cron ping 10 min |
 | PostgreSQL | Supabase | 500 MB almacenamiento |
-| Redis | Upstash | **10.000 requests/día** |
+| Redis | Upstash | **10.000 requests/día** · meter en `GET /health` → `redis.ops` |
 | Archivos PDF/Audio | Cloudflare R2 | 10 GB · 1 M lecturas/mes (GuiasModule, aún no) |
 | OTP SMS | Firebase Authentication | 10.000 SMS/mes |
 | Email/password | Firebase Authentication | JURIDICA + ADMIN |
@@ -214,7 +229,7 @@ Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, claves.
 - **Ley 1581 (Habeas Data):** consentimiento explícito (`acceptPrivacyPolicy`) en registro NATURAL y JURIDICA, con versión de política + timestamp. Teléfono, NIT y email cifrados en reposo (pgcrypto AES-256). Lookup por HMAC. Nunca en logs ni en respuestas de `/admin/juridica/pending` (NIT enmascarado) ni de `/admin/privacy/deletion-requests`. Dumps de Postgres en R2 (`backups/`) son PII; bucket privado. El titular pide supresión con `POST /auth/privacy/deletion-request`.
 - **JWT:** RS256. TTL por rol (§ 4.3). Un refresh vivo por usuario; rotación con `GETDEL`; logout borra refresh e índice de sesión. Refresh de JURIDICA relee `verified`.
 - **Privilegios:** no existe `POST /auth/register/admin`. Un API key compartido no identifica operador; el audit usa `sub` del JWT ADMIN.
-- **Rate limiting:** Throttle por IP vía Redis (Upstash); OTP y registro JURIDICA tienen límites más estrictos en el controller.
+- **Rate limiting:** Throttle por IP vía Redis (Upstash); OTP y registro JURIDICA tienen límites más estrictos en el controller. El cupo diario de 10.000 comandos se ve en `GET /health` → `redis.ops` (UTC).
 - **OWASP:** Helmet, ValidationPipe global (`whitelist` + `forbidNonWhitelisted`), sanitización de inputs.
 - Render inyecta `PORT`. No definirlo en el dashboard.
 

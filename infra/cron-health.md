@@ -21,7 +21,8 @@ Respuesta de referencia:
 {
   "status": "ok",
   "service": "agrotech-backend",
-  "timestamp": "2026-08-07T14:00:00.000Z"
+  "timestamp": "2026-08-07T14:00:00.000Z",
+  "redis": { "ops": 12, "day": "2026-08-07", "limit": 10000 }
 }
 ```
 
