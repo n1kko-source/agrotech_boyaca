@@ -2,6 +2,25 @@ import type { NextFunction, Request, Response } from 'express';
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib';
 
 const THRESHOLD_BYTES = 1024;
+const SKIP_CONTENT_TYPE =
+  /^(application\/pdf|application\/octet-stream|audio\/|video\/|image\/)/i;
+
+type CompressionLocals = { skipCompression?: boolean };
+
+export function skipCompression(res: Response): void {
+  (res.locals as CompressionLocals).skipCompression = true;
+}
+
+function shouldSkip(res: Response): boolean {
+  if ((res.locals as CompressionLocals).skipCompression) {
+    return true;
+  }
+  if (res.statusCode === 206 || res.statusCode === 416) {
+    return true;
+  }
+  const contentType = String(res.getHeader('content-type') ?? '');
+  return SKIP_CONTENT_TYPE.test(contentType);
+}
 
 function toBuffer(chunk: unknown, encoding?: BufferEncoding): Buffer {
   if (chunk == null) {
@@ -30,7 +49,26 @@ export function gzipBrotliMiddleware(
   }
 
   const chunks: Buffer[] = [];
-  const originalEnd = res.end.bind(res);
+  const originalWrite = res.write.bind(res) as (
+    chunk?: unknown,
+    encoding?: unknown,
+    cb?: unknown,
+  ) => boolean;
+  const originalEnd = res.end.bind(res) as (
+    chunk?: unknown,
+    encoding?: unknown,
+    cb?: unknown,
+  ) => Response;
+  let passthrough = false;
+
+  const restore = () => {
+    if (passthrough) {
+      return;
+    }
+    passthrough = true;
+    res.write = originalWrite;
+    res.end = originalEnd;
+  };
 
   const capture = (chunk: unknown, encoding?: BufferEncoding) => {
     if (chunk) {
@@ -39,6 +77,14 @@ export function gzipBrotliMiddleware(
   };
 
   res.write = ((chunk: unknown, encoding?: unknown, cb?: unknown) => {
+    if (shouldSkip(res)) {
+      restore();
+      for (const pending of chunks) {
+        originalWrite(pending);
+      }
+      chunks.length = 0;
+      return originalWrite(chunk, encoding, cb);
+    }
     capture(
       chunk,
       typeof encoding === 'string' ? (encoding as BufferEncoding) : undefined,
@@ -53,6 +99,14 @@ export function gzipBrotliMiddleware(
   }) as Response['write'];
 
   res.end = ((chunk?: unknown, encoding?: unknown, cb?: unknown) => {
+    if (shouldSkip(res)) {
+      restore();
+      for (const pending of chunks) {
+        originalWrite(pending);
+      }
+      chunks.length = 0;
+      return originalEnd(chunk, encoding, cb);
+    }
     capture(
       chunk,
       typeof encoding === 'string' ? (encoding as BufferEncoding) : undefined,
@@ -70,7 +124,7 @@ export function gzipBrotliMiddleware(
       body.length < THRESHOLD_BYTES ||
       res.getHeader('Content-Encoding')
     ) {
-      return originalEnd(body, callback as () => void);
+      return originalEnd(body, callback);
     }
 
     const encodingName = useBr ? 'br' : 'gzip';
@@ -84,7 +138,7 @@ export function gzipBrotliMiddleware(
     res.setHeader('Vary', 'Accept-Encoding');
     res.setHeader('Content-Encoding', encodingName);
     res.setHeader('Content-Length', String(compressed.length));
-    return originalEnd(compressed, callback as () => void);
+    return originalEnd(compressed, callback);
   }) as Response['end'];
 
   next();

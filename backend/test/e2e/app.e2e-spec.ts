@@ -34,8 +34,13 @@ describe('AppController (e2e)', () => {
       .get('/health')
       .expect(200)
       .expect((res) => {
-        const body = res.body as { status: string };
+        const body = res.body as {
+          status: string;
+          r2: { storageLimit: number; readsLimit: number };
+        };
         expect(body.status).toBe('ok');
+        expect(body.r2.storageLimit).toBe(10 * 1024 * 1024 * 1024);
+        expect(body.r2.readsLimit).toBe(1_000_000);
       });
   });
 });

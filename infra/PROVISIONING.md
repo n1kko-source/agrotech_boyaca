@@ -14,7 +14,8 @@ plantillas, variables y el endpoint `/health`.
 | [Upstash](https://upstash.com) | Redis (throttle, refresh tokens) | Free (10k req/día) |
 | [Cloudflare R2](https://www.cloudflare.com/developer-platform/r2/) | PDF / audio | Free tier |
 | [Firebase](https://console.firebase.google.com) | Auth OTP SMS + FCM | Spark (gratis) |
-| [cron-job.org](https://cron-job.org) | Anti-sleep `GET /health` | Free |
+| [OpenWeather](https://openweathermap.org/api) | Clima actual + forecast 5d/3h | Free |
+| [cron-job.org](https://cron-job.org) | Anti-sleep `GET /health` + job alertas | Free |
 
 Detalle de límites: [`docs/BASE_INFRAESTRUCTURA.md`](../docs/BASE_INFRAESTRUCTURA.md) §5.
 Migración de tier: [`migration-notes.md`](./migration-notes.md).
@@ -31,6 +32,7 @@ Blueprint (sin secretos): [`render.yaml`](../render.yaml).
 - [ ] Web Service Render (Docker, root/`dockerContext` = `backend`) + variables de entorno
 - [ ] Deploy OK → `GET https://<app>.onrender.com/health` responde `{"status":"ok",...}` **en caliente** (sin página de wake-up)
 - [ ] Cron cada **10 min** a `/health` ([`cron-health.md`](./cron-health.md))
+- [ ] Cron cada **3 h** a `POST /clima/jobs/evaluate` (header `x-clima-job-secret`)
 - [ ] Secretos solo en consolas / `.env` local (nunca en git)
 
 Plantilla de variables: [`backend/.env.example`](../backend/.env.example).
@@ -69,7 +71,8 @@ Plantilla de variables: [`backend/.env.example`](../backend/.env.example).
    - `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`
    - `R2_BUCKET`
    - `R2_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com`
-4. Dominio público / CDN opcional → `R2_PUBLIC_BASE_URL` (puede quedar vacío en Sprint 0).
+4. Dominio público / CDN opcional → `R2_PUBLIC_BASE_URL` (puede quedar vacío; las descargas de guías van por `GET /guias/:id/archivo` con JWT, no por dominio público).
+5. AG-26: el token debe poder **Put/Get/Delete** en el prefijo `guias/`. El Dockerfile de backend instala `ffmpeg` (Opus 16 kbps). `GET /health` → `r2.storageBytes` / `r2.reads` (cupo 10 GB / 1 M lecturas). Los dumps de AG-40 en `backups/postgres/` **también** cuentan al 10 GB del bucket.
 
 ---
 
@@ -107,6 +110,12 @@ Plantilla de variables: [`backend/.env.example`](../backend/.env.example).
 5. App Android: descargar `google-services.json` → `mobile/android/app/` (gitignored).
 6. No commitear `firebase_options.dart` ni service accounts.
 
+### OpenWeather (AG-25)
+
+1. [openweathermap.org](https://openweathermap.org/api) → API keys (Current + 5 day / 3 hour; **no** One Call 3.0 de pago).
+2. `OPENWEATHER_API_KEY` en Render / `.env`. Sin ella, `GET /clima/:municipio` responde `503`.
+3. `CLIMA_JOB_SECRET` (valor aleatorio largo). Cron: [`cron-health.md`](./cron-health.md).
+
 ---
 
 ## 5. Render (NestJS)
@@ -122,6 +131,7 @@ Plantilla de variables: [`backend/.env.example`](../backend/.env.example).
    - **No** definas `PORT` (Render lo inyecta).
    - **No** definas `GOOGLE_APPLICATION_CREDENTIALS`.
    - AG-15: `JWT_PRIVATE_KEY`, `FIREBASE_WEB_API_KEY`, `PII_ENCRYPTION_KEY`, `PII_HASH_PEPPER` (además de `JWT_PUBLIC_KEY`).
+   - AG-25: `OPENWEATHER_API_KEY`, `CLIMA_JOB_SECRET`.
    - Migraciones Prisma corren al arrancar el contenedor (`DIRECT_URL` session `:5432`).
 7. Dominio público → `APP_PUBLIC_URL` (local y referencia del cron), p. ej. `https://agrotech-8p9b.onrender.com`.
 

@@ -1,7 +1,7 @@
 # AgroTech Boyacá — Contexto arquitectónico
 
 > Guía base del proyecto. **El código en este repo manda.** Si un ticket Jira contradice lo implementado, se sigue el código y se actualiza este archivo en el mismo cambio.
-> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41), `AdminModule`, FTS de comunidad (AG-21), precios de commodities (AG-23) y push FCM (AG-24).
+> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41), `AdminModule`, FTS de comunidad (AG-21), precios de commodities (AG-23), push FCM (AG-24), clima/alertas (AG-25), guías técnicas PDF/audio (AG-26) y login Flutter ramificado (AG-19).
 
 ## Host de ejecución (canónico)
 
@@ -65,11 +65,25 @@ ADMIN no es usuario de la app rural: opera contra la API (Postman / curl / futur
 **Decisión: Flutter (Android primero)**
 
 - Desarrollo directo como app nativa Android con Flutter
-- Offline-first con SQLite local (`sqflite`)
+- Offline-first con SQLite local (`sqflite`) — persistencia de producto aún no; tokens de sesión sí (AG-19)
 - Sincronización con backend al recuperar señal vía `/sync` (módulo aún no implementado)
 - Push notifications nativas vía FCM (`NotificationsModule`; módulo de noticias no implementado)
 - **Fase 2:** mismo codebase Flutter compila para iOS sin reescritura
 - PWA descartada: Service Workers poco confiables en 2G/3G rural
+
+### 3.1 Cliente Flutter — Auth (AG-19)
+
+Código en `mobile/`. ADMIN no aparece en la app rural.
+
+| Pieza | Contrato |
+|---|---|
+| Rol | Pantalla NATURAL vs JURIDICA. `empresa` es `entityType`, nunca un rol |
+| NATURAL | Celular E.164 `+573XXXXXXXXX` → OTP 6 dígitos. Reenvío con countdown **60 s** (`OTP_COOLDOWN_SECONDS`). Consentimiento Ley 1581 en el verify |
+| JURIDICA | Registro `{ email, password, nit, entityType, acceptPrivacyPolicy }` y login `{ email, password }` |
+| Pendiente | Login `403 FORBIDDEN` o registro `201` → pantalla de espera (correo Firebase y/o `verified` de operador). Reenvío: `POST /auth/register/juridica/resend` |
+| Tokens | Access + refresh en `flutter_secure_storage` (EncryptedSharedPreferences / Keychain). No se persiste teléfono, correo, NIT ni contraseña |
+| Refresh | Transparente: si el access vence en ≤ 30 s, o ante `401`, un solo `POST /auth/refresh` en vuelo (mutex; el backend usa `GETDEL`). Si falla → invitado |
+| API | `API_BASE_URL` (`--dart-define`). Default `https://agrotech-8p9b.onrender.com`. Timeout 20 s |
 
 ---
 
@@ -79,7 +93,7 @@ ADMIN no es usuario de la app rural: opera contra la API (Postman / curl / futur
 
 **Justificación monolito:** evita latencia inter-servicio bajo 2G/3G, reduce complejidad operativa en fase MVP, extractable a microservicios cuando la carga lo justifique.
 
-Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `NotificationsModule`, `AuthModule`, `AdminModule`, `ComunidadModule`, `CommoditiesModule`.
+Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `NotificationsModule`, `AuthModule`, `AdminModule`, `ComunidadModule`, `CommoditiesModule`, `ClimaModule`, `GuiasModule`.
 
 ### 4.1 Módulos — implementados
 
@@ -91,14 +105,15 @@ Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `NotificationsModule`
 | AdminModule | Operador: listar JURIDICA pendientes · `PATCH` verify · auditoría UUID · email de aviso |
 | ComunidadModule | Posts de marketplace · perfiles públicos productor/comprador · FTS PostgreSQL (`unaccent` + `pg_trgm`). Matching y mensajería aún no |
 | CommoditiesModule | Precio vigente COP por producto+región · cache Redis TTL 60 s · invalidación al upsert. Solo JURIDICA verificada escribe |
-| NotificationsModule | FCM HTTP v1 · registro de token por dispositivo · `NotificationService.send(userId, payload)` (global, lo inyectan Comunidad/Commodities) · inbox Postgres si el dispositivo está offline · limpieza de tokens inválidos |
+| NotificationsModule | FCM HTTP v1 · registro de token por dispositivo · `NotificationService.send(userId, payload)` (global, lo inyectan Comunidad/Commodities/Clima) · inbox Postgres si el dispositivo está offline · limpieza de tokens inválidos |
+| ClimaModule | OpenWeather (current + forecast 5d/3h) por municipio · cache Redis TTL 3 h · alertas `rain`/`frost` · job HTTP → `NotificationService` · WebSocket `/clima` complementario (no sustituye al push) |
+| GuiasModule | Metadata PDF/audio · upload ADMIN a R2 (`guias/`) · listado cursor · stream con Range · audio Opus 16 kbps · meter en `/health` |
 
 ### 4.2 Módulos — previstos (aún no hay código)
 
 | Módulo | Responsabilidad |
 |---|---|
-| NoticiasModule | WebSocket Gateway · Alertas · Clima (el push FCM vive en `NotificationsModule`) |
-| GuiasModule | PDF/Audio metadata · Entrega low-bandwidth (R2) |
+| NoticiasModule | Contenido de noticias (el clima, las alertas y el push FCM ya viven en `ClimaModule` / `NotificationsModule`) |
 | SyncModule | `POST /sync` · batch offline · conflicto LWW |
 
 No implementar estos módulos “porque el ticket lo nombra” si el kernel de auth/admin no está cerrado. Extender este archivo cuando existan.
@@ -178,7 +193,7 @@ Precio vigente (un row por `producto`+`region`, COP). JWT de cualquier rol para 
 
 Cache: `GET` Redis → miss → Postgres → `SET` 60 s. POST hace `DEL` de esa clave. Si Redis falla, GET lee Postgres (fail-open; la fuente de verdad no es el cache). OTP/refresh siguen fail-closed.
 
-Instrumentación Upstash (10.000 cmds/día): contador **en proceso** (no un `INCR` extra). `GET /health` incluye `{ redis: { ops, day, limit: 10000 } }` (`day` UTC). Pino avisa al 80 % y al tope. Throttle + KV (OTP, refresh, cache de precios) suman al mismo meter.
+Instrumentación Upstash (10.000 cmds/día): contador **en proceso** (no un `INCR` extra). `GET /health` incluye `{ redis: { ops, day, limit: 10000 } }` (`day` UTC). Pino avisa al 80 % y al tope. Throttle + KV (OTP, refresh, cache de precios, cache de clima) suman al mismo meter.
 
 ### 4.4.3 Notifications — contrato HTTP (AG-24)
 
@@ -197,6 +212,38 @@ JWT de cualquier rol autenticado. Sin token → `401`. `fcmToken` no es PII de L
 
 Login NATURAL / JURIDICA: `fcmToken` y `deviceId` van juntos o no van. El bind FCM es fire-and-forget: no bloquea el JWT. Un bind fallido no revierte el JWT.
 
+### 4.4.4 Clima y alertas — contrato HTTP (AG-25)
+
+Pronóstico por municipio (Boyacá primero vía geocoding OpenWeather) y umbrales configurables. El canal de entrega en 2G/3G es **FCM + inbox** (`NotificationService.send`). El WebSocket `namespace /clima` es opt-in (JWT en `auth.token` o `Authorization`); no sustituye al push ni al GET pending.
+
+JWT de cualquier rol para consultar clima. Crear/listar alertas: `NATURAL` / `JURIDICA` (`ADMIN` → `403`). Sin token → `401`. Sin `OPENWEATHER_API_KEY` → `503` en GET clima. Redis fail-open (TTL **3 h**); si Redis cae se llama a OpenWeather. Fetch a OpenWeather: timeout **5 s** (`AbortSignal`). No usa NLP: el umbral es `kind`.
+
+| Método | Ruta | Quién | Resultado |
+|---|---|---|---|
+| `GET` | `/clima/:municipio` | JWT | Clima actual + 8 slots de forecast (~24 h). `{ municipio, current, forecast, fetchedAt, cached }`. Municipio 2–80 chars. Desconocido → `404` |
+| `POST` | `/alertas` | NATURAL, JURIDICA | Body `{ municipio, kind: "rain" \| "frost", enabled? }`. Upsert por (`userId`, municipio, kind). `{ id, municipio, kind, enabled }` |
+| `GET` | `/alertas` | NATURAL, JURIDICA | Alertas del `sub`. `{ items: [...] }` |
+| `POST` | `/clima/jobs/evaluate` | header `x-clima-job-secret` = `CLIMA_JOB_SECRET` | Público (cron). Agrupa por municipio, reusa el cache, dispara push si el umbral matchea y no se disparó en 12 h. `{ evaluated, fired }`. Secret inválido → `401` |
+
+`rain`: id OpenWeather 2xx/3xx/5xx, `pop ≥ 0.4` o `rainMm > 0` en actual o forecast. `frost`: `tempC ≤ 2`. Job: cron-job.org cada **3 h** (no `@Cron` in-process: Render Free hiberna). WS evento `alerta` al mismo payload que el push.
+
+### 4.4.5 Guías técnicas — contrato HTTP (AG-26)
+
+PDF y audio para el productor rural (2G/3G). Metadata en Postgres; bytes en Cloudflare R2 prefijo `guias/` (el mismo bucket que `backups/postgres/`, bucket **privado**). El listado no trae el archivo. La descarga va por la API con JWT (no hay URL pública) y honra `Range` para descarga progresiva. Audio se recodifica a **Opus 16 kbps, mono, 16 kHz** (`audio/ogg`) con ffmpeg **antes** de `PutObject`. PDF se guarda tal cual (`application/pdf`, máx. 8 MB). Audio de entrada máx. 30 MB.
+
+JWT de cualquier rol para listar/descargar. Escribir: solo `ADMIN`. Sin token → `401`. NATURAL / JURIDICA en POST/PATCH/DELETE → `403`. Sin `R2_*` en producción → `503` al subir. Gzip/Brotli **no** se aplica al stream del archivo (rompería Range).
+
+| Método | Ruta | Quién | Resultado |
+|---|---|---|---|
+| `POST` | `/guias` | ADMIN | multipart: `archivo` + `titulo`, `categoria`, `subsector`. 201 `{ id, titulo, categoria, subsector, kind, mimeType, sizeBytes, createdAt }`. `kind` = `pdf` \| `audio` (se infiere del MIME). `categoria`/`subsector` se normalizan (trim, minúsculas) |
+| `GET` | `/guias?categoria=&limit=&cursor=` | JWT | Cursor. Ítems = metadata (sin bytes). `categoria` opcional |
+| `GET` | `/guias/:id` | JWT | Metadata. Sin fila → `404` |
+| `GET` | `/guias/:id/archivo` | JWT | Stream. `Accept-Ranges: bytes`. `Range: bytes=start-end` → `206` + `Content-Range`. Rango inválido → `416`. Cuenta 1 lectura R2 (Class B) |
+| `PATCH` | `/guias/:id` | ADMIN | Body `{ titulo?, categoria?, subsector? }` (al menos un campo). No reemplaza el archivo |
+| `DELETE` | `/guias/:id` | ADMIN | Borra objeto R2 + fila. 204 |
+
+`GET /health` incluye `{ r2: { storageBytes, storageLimit: 10737418240, reads, readsLimit: 1000000, month } }`. `storageBytes` es la suma de guías (no incluye dumps de backup en el mismo bucket). `reads` son GetObject de `/archivo` en el mes UTC; Pino avisa al 80 % y al tope. El 10 GB / 1 M lecturas es el free tier del **bucket entero**.
+
 ### 4.5 Datos (Ley 1581)
 
 Tabla `users`: plaintext de teléfono / email / NIT **nunca** se guarda. Ciphertext `pgcrypto` AES-256 (`pgp_sym_encrypt`); lookup HMAC-SHA256 con `PII_HASH_PEPPER`. Constraints: NATURAL exige teléfono; JURIDICA exige email+NIT+`entity_type`; ADMIN exige email y no lleva NIT ni `entity_type`.
@@ -213,7 +260,11 @@ Tabla `commodity_prices`: `producto` + `region` únicos, `precio` COP, `unidad`,
 
 Tablas `device_tokens` y `notifications`: token FCM + inbox de push. Sin teléfono/email/NIT. `ON DELETE CASCADE` con `users`. Estados: `PENDING` \| `SENT` \| `DELIVERED`.
 
-Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, `fcmToken`, claves.
+Tabla `weather_alerts`: umbral `rain`/`frost` por usuario+municipio. Sin PII. `last_fired_at` evita re-push antes de 12 h.
+
+Tabla `guias`: título, categoría, subsector, `kind` (`pdf`/`audio`), MIME, `size_bytes`, `object_key` (`guias/{uuid}.pdf|ogg`). Sin PII. Tabla `r2_monthly_reads`: lecturas Class B por mes UTC.
+
+Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, `fcmToken`, `OPENWEATHER_API_KEY`, `CLIMA_JOB_SECRET`, `R2_SECRET_ACCESS_KEY`, claves.
 
 ### 4.6 Principios API
 
@@ -232,12 +283,14 @@ Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, `fcmToke
 | Backend NestJS | Render | 750 h/mes · sleep 15 min → cron ping 10 min |
 | PostgreSQL | Supabase | 500 MB almacenamiento |
 | Redis | Upstash | **10.000 requests/día** · meter en `GET /health` → `redis.ops` |
-| Archivos PDF/Audio | Cloudflare R2 | 10 GB · 1 M lecturas/mes (GuiasModule, aún no) |
+| Archivos PDF/Audio | Cloudflare R2 | 10 GB · 1 M lecturas/mes · meter en `GET /health` → `r2` |
 | OTP SMS | Firebase Authentication | 10.000 SMS/mes |
 | Email/password | Firebase Authentication | JURIDICA + ADMIN |
 | Email transaccional | Resend | Aviso “cuenta verificada” (AG-17) |
 | Push | Firebase FCM HTTP v1 | Gratuito; `NotificationsModule`. Noticias (contenido) no implementado |
+| Clima | OpenWeather Current + 5 day / 3 hour | Free; cache Redis 3 h. `OPENWEATHER_API_KEY` |
 | Anti-sleep | Cron-job.org → `GET /health` cada 10 min | — |
+| Job alertas clima | Cron-job.org → `POST /clima/jobs/evaluate` cada 3 h | header `x-clima-job-secret` |
 | Backups PG | GitHub Actions → R2 `backups/postgres/` | retención 7 días; Free no tiene PITR |
 
 **Punto de migración:** al superar ~500 usuarios activos concurrentes → Render pago (sin spin-down) + Supabase Pro + Upstash Pro. El código NestJS no cambia.

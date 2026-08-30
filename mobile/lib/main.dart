@@ -1,17 +1,19 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'dart:async';
 
-void main() {
-  runApp(const MyApp());
-}
+import 'package:flutter/material.dart';
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+import 'app.dart';
+import 'auth/auth_api.dart';
+import 'auth/auth_controller.dart';
+import 'auth/secure_token_store.dart';
+import 'auth/session_client.dart';
+import 'config/api_config.dart';
 
-  @override
-  Widget build(BuildContext context) {
-    return const MaterialApp(
-      title: 'AgroTech Boyacá',
-      home: Scaffold(),
-    );
-  }
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final store = SecureTokenStore();
+  final client = SessionClient(store: store, baseUrl: ApiConfig.baseUrl);
+  final auth = AuthController(store: store, api: AuthApi(client));
+  runApp(AgroTechApp(auth: auth));
+  unawaited(auth.restore());
 }

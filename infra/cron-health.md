@@ -27,3 +27,17 @@ Respuesta de referencia:
 ```
 
 Guía completa de aprovisionamiento: [`PROVISIONING.md`](./PROVISIONING.md).
+
+## Job de alertas climáticas (AG-25)
+
+Mismo proveedor (cron-job.org). No uses `@Cron` dentro del proceso Nest: Render Free hiberna.
+
+| Campo | Valor |
+|-------|--------|
+| URL | `https://agrotech-8p9b.onrender.com/clima/jobs/evaluate` |
+| Método | `POST` |
+| Header | `x-clima-job-secret: <CLIMA_JOB_SECRET>` |
+| Intervalo | cada 3 horas |
+| Esperado | HTTP 200 + `{ "evaluated": n, "fired": n }` |
+
+El ping de `/health` cada 10 min suele tener el servicio despierto; el job reusa el cache Redis de clima (TTL 3 h) y dispara FCM vía `NotificationService`.

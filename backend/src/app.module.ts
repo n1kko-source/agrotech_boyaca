@@ -3,8 +3,10 @@ import { AdminModule } from './admin/admin.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
+import { ClimaModule } from './clima/clima.module';
 import { CommoditiesModule } from './commodities/commodities.module';
 import { ComunidadModule } from './comunidad/comunidad.module';
+import { GuiasModule } from './guias/guias.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SharedModule } from './shared/shared.module';
@@ -18,6 +20,8 @@ import { SharedModule } from './shared/shared.module';
     AdminModule,
     ComunidadModule,
     CommoditiesModule,
+    ClimaModule,
+    GuiasModule,
   ],
   controllers: [AppController],
   providers: [AppService],

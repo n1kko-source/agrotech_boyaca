@@ -34,6 +34,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     if (exception instanceof ThrottlerException) {
       return HttpStatus.TOO_MANY_REQUESTS;
     }
+    if (isMulterLimit(exception)) {
+      return HttpStatus.PAYLOAD_TOO_LARGE;
+    }
     if (exception instanceof HttpException) {
       return exception.getStatus();
     }
@@ -44,6 +47,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     if (exception instanceof ThrottlerException) {
       return {
         error: { code: ErrorCode.THROTTLED, message: 'Too many requests' },
+      };
+    }
+    if (isMulterLimit(exception)) {
+      return {
+        error: {
+          code: ErrorCode.VALIDATION_ERROR,
+          message: 'File too large',
+        },
       };
     }
     if (exception instanceof HttpException) {
@@ -69,6 +80,13 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   }
 }
 
+function isMulterLimit(exception: unknown): boolean {
+  if (!(exception instanceof Error) || exception.name !== 'MulterError') {
+    return false;
+  }
+  return (exception as Error & { code?: string }).code === 'LIMIT_FILE_SIZE';
+}
+
 function statusToCode(status: number): ErrorCode {
   if (status === 400) {
     return ErrorCode.VALIDATION_ERROR;
@@ -84,6 +102,9 @@ function statusToCode(status: number): ErrorCode {
   }
   if (status === 409) {
     return ErrorCode.CONFLICT;
+  }
+  if (status === 413) {
+    return ErrorCode.VALIDATION_ERROR;
   }
   if (status === 429) {
     return ErrorCode.THROTTLED;
