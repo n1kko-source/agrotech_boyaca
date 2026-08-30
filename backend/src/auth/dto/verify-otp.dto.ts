@@ -1,7 +1,8 @@
 import { Equals, IsBoolean, IsString, Matches } from 'class-validator';
+import { OptionalFcmDeviceDto } from '../../notifications/dto/optional-fcm-device.dto';
 import { CO_MOBILE_E164 } from '../phone/phone';
 
-export class VerifyOtpDto {
+export class VerifyOtpDto extends OptionalFcmDeviceDto {
   @IsString()
   @Matches(CO_MOBILE_E164, { message: 'Invalid phone' })
   phone!: string;

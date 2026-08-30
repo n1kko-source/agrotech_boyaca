@@ -87,17 +87,18 @@ export class TokenService {
     return payload;
   }
 
-  async revoke(refreshToken: string): Promise<void> {
+  async revoke(refreshToken: string): Promise<string | null> {
     const tokenHash = hashRefreshToken(refreshToken);
     const raw = await this.kv.getdel(refreshKey(refreshToken));
     const payload = raw ? parseRefresh(raw) : null;
     if (!payload) {
-      return;
+      return null;
     }
     const current = await this.kv.get(sessionKey(payload.sub));
     if (current === tokenHash) {
       await this.kv.del(sessionKey(payload.sub));
     }
+    return payload.sub;
   }
 
   private async dropPreviousRefresh(sub: string): Promise<void> {

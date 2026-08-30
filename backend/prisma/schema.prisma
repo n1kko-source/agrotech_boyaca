@@ -42,6 +42,8 @@ model User {
   posts            Post[]
   profile          MarketplaceProfile?
   commodityPrices  CommodityPrice[]
+  deviceTokens     DeviceToken[]
+  notifications    Notification[]
 
   @@map("users")
 }
@@ -116,4 +118,46 @@ model CommodityPrice {
 
   @@unique([producto, region])
   @@map("commodity_prices")
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+}
+
+/// FCM registration token per device. Not PII. Unique token so a reinstall
+/// moves the device to the current user.
+model DeviceToken {
+  id        String   @id @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  token     String
+  deviceId  String   @map("device_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@unique([userId, deviceId])
+  @@index([userId])
+  @@map("device_tokens")
+}
+
+/// Push inbox. PENDING if FCM could not accept (no token / offline provider).
+/// SENT when FCM accepted (store-and-forward). DELIVERED when the client acks.
+model Notification {
+  id        String               @id @db.Uuid
+  userId    String               @map("user_id") @db.Uuid
+  title     String
+  body      String
+  data      Json                 @default("{}")
+  status    NotificationStatus   @default(PENDING)
+  createdAt DateTime             @default(now()) @map("created_at")
+  updatedAt DateTime             @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt])
+  @@map("notifications")
 }

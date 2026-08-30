@@ -1,0 +1,12 @@
+export const FCM_TTL_SECONDS = 28 * 24 * 60 * 60;
+export const PENDING_LIMIT_DEFAULT = 20;
+export const PENDING_LIMIT_MAX = 50;
+export const PENDING_MAX_AGE_MS = 28 * 24 * 60 * 60 * 1000;
+export const NOTIFICATION_TITLE_MAX = 80;
+export const NOTIFICATION_BODY_MAX = 240;
+export const NOTIFICATION_DATA_MAX_KEYS = 10;
+export const NOTIFICATION_DATA_VALUE_MAX = 256;
+export const FCM_TOKEN_MIN = 16;
+export const FCM_TOKEN_MAX = 4096;
+export const DEVICE_ID_MIN = 8;
+export const DEVICE_ID_MAX = 128;

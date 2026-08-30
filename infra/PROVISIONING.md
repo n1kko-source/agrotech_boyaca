@@ -89,7 +89,17 @@ Plantilla de variables: [`backend/.env.example`](../backend/.env.example).
      `GET /admin/juridica/pending` y `PATCH /admin/juridica/:id/verify` `{ verified }`.
      Aviso al verificar: email vía Resend si `RESEND_API_KEY` + `MAIL_FROM`; si no, log sin PII.
      El script `auth:verify-juridica` queda como fallback operativo (sin auditoría de operador).
-3. Habilitar **Cloud Messaging** (FCM) para push Android.
+3. Habilitar **Cloud Messaging** (FCM) para push Android. El backend (AG-24) envía
+   con la API HTTP v1 (`https://fcm.googleapis.com/v1/projects/{id}/messages:send`)
+   firmando un JWT de service account. **No** hay `firebase-admin` ni
+   `GOOGLE_APPLICATION_CREDENTIALS` en Render.
+   - Credenciales: `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`
+   - Sin esas tres variables, `NotificationService.send` persiste la fila en
+     `notifications` (estado `PENDING`) y el cliente la reclama con
+     `GET /notifications/pending` al reconectar.
+   - Tokens se borran solo si FCM responde `UNREGISTERED`, `NOT_FOUND` o
+     `SENDER_ID_MISMATCH`. Un HTTP 400 / `INVALID_ARGUMENT` genérico no
+     limpia el token. TTL FCM Android: 28 días (zona rural).
 4. **Project settings → Service accounts → Generate new private key**:
    - Usar `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` en Render / `.env`
    - El JSON **no** se versiona (ver `.gitignore`)

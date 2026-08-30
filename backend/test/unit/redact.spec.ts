@@ -8,6 +8,7 @@ describe('redactSensitive (Ley 1581)', () => {
     expect(isSensitiveKey('email')).toBe(true);
     expect(isSensitiveKey('NIT')).toBe(true);
     expect(isSensitiveKey('telefono')).toBe(true);
+    expect(isSensitiveKey('fcmToken')).toBe(true);
     expect(isSensitiveKey('status')).toBe(false);
   });
 

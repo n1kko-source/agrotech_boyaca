@@ -17,6 +17,7 @@ const SENSITIVE_KEYS = new Set([
   'pii_encryption_key',
   'pii_hash_pepper',
   'jwt_private_key',
+  'fcmtoken',
   'refreshtoken',
   'refresh_token',
   'accesstoken',
@@ -71,4 +72,6 @@ export const PINO_REDACT_PATHS = [
   'req.body.nit',
   'req.body.recaptchaToken',
   'req.body.playIntegrityToken',
+  'req.body.fcmToken',
+  '*.fcmToken',
 ];
