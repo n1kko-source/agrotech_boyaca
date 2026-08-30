@@ -30,9 +30,15 @@ describe('Shared kernel (e2e)', () => {
       .get('/health')
       .expect(200)
       .expect((res) => {
-        const body = res.body as { status: string; service: string };
+        const body = res.body as {
+          status: string;
+          service: string;
+          redis: { ops: number; limit: number };
+        };
         expect(body.status).toBe('ok');
         expect(body.service).toBe('agrotech-backend');
+        expect(body.redis.limit).toBe(10_000);
+        expect(typeof body.redis.ops).toBe('number');
       });
   });
 

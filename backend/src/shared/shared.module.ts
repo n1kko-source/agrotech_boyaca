@@ -18,6 +18,7 @@ import { pinoLoggerParams } from './logger/pino-params';
 import { RedisThrottlerStorage } from './redis/redis-throttler.storage';
 import { REDIS_CLIENT } from './redis/redis.constants';
 import { RedisModule } from './redis/redis.module';
+import { RedisOpsCounter } from './redis/redis-ops.counter';
 
 @Global()
 @Module({
@@ -34,8 +35,12 @@ import { RedisModule } from './redis/redis.module';
     }),
     ThrottlerModule.forRootAsync({
       imports: [RedisModule],
-      inject: [ConfigService, REDIS_CLIENT],
-      useFactory: (config: ConfigService, redis: Redis | null) => ({
+      inject: [ConfigService, REDIS_CLIENT, RedisOpsCounter],
+      useFactory: (
+        config: ConfigService,
+        redis: Redis | null,
+        ops: RedisOpsCounter,
+      ) => ({
         throttlers: [
           {
             name: 'default',
@@ -43,7 +48,7 @@ import { RedisModule } from './redis/redis.module';
             limit: Number(config.get('THROTTLE_LIMIT') ?? 100),
           },
         ],
-        storage: redis ? new RedisThrottlerStorage(redis) : undefined,
+        storage: redis ? new RedisThrottlerStorage(redis, ops) : undefined,
       }),
     }),
   ],
