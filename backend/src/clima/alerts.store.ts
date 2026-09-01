@@ -11,9 +11,11 @@ export type WeatherAlertRecord = {
   enabled: boolean;
   lastFiredAt: Date | null;
   createdAt: Date;
+  updatedAt: Date;
 };
 
 export type UpsertAlertInput = {
+  id?: string;
   userId: string;
   municipio: string;
   kind: AlertKind;
@@ -43,7 +45,7 @@ export class PrismaWeatherAlertStore implements WeatherAlertStore {
         },
       },
       create: {
-        id: randomUUID(),
+        id: input.id ?? randomUUID(),
         userId: input.userId,
         municipio: input.municipio,
         kind: input.kind,
@@ -90,16 +92,19 @@ export class MemoryWeatherAlertStore implements WeatherAlertStore {
     );
     if (existing) {
       existing.enabled = input.enabled;
+      existing.updatedAt = new Date();
       return Promise.resolve(existing);
     }
+    const now = new Date();
     const row: WeatherAlertRecord = {
-      id: randomUUID(),
+      id: input.id ?? randomUUID(),
       userId: input.userId,
       municipio: input.municipio,
       kind: input.kind,
       enabled: input.enabled,
       lastFiredAt: null,
-      createdAt: new Date(),
+      createdAt: now,
+      updatedAt: now,
     };
     this.rows.push(row);
     return Promise.resolve(row);
@@ -134,6 +139,7 @@ function toRecord(row: {
   enabled: boolean;
   lastFiredAt: Date | null;
   createdAt: Date;
+  updatedAt: Date;
 }): WeatherAlertRecord {
   return {
     id: row.id,
@@ -143,5 +149,6 @@ function toRecord(row: {
     enabled: row.enabled,
     lastFiredAt: row.lastFiredAt,
     createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }

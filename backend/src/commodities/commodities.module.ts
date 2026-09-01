@@ -26,5 +26,6 @@ import {
       },
     },
   ],
+  exports: [CommoditiesService, PRICES_STORE],
 })
 export class CommoditiesModule {}

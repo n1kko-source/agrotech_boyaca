@@ -23,10 +23,40 @@ export class PostsService {
 
   async create(
     authorId: string,
-    input: { title: string; description: string; category: string },
+    input: {
+      title: string;
+      description: string;
+      category: string;
+      id?: string;
+    },
   ): Promise<PostView> {
     const row = await this.posts.create({ authorId, ...input });
     return toPostView(row);
+  }
+
+  async updateOwn(
+    authorId: string,
+    id: string,
+    input: { title: string; description: string; category: string },
+  ): Promise<PostView | null> {
+    const existing = await this.posts.findById(id);
+    if (!existing || existing.authorId !== authorId) {
+      return null;
+    }
+    const row = await this.posts.update(id, input);
+    return row ? toPostView(row) : null;
+  }
+
+  findById(id: string): Promise<PostRecord | null> {
+    return this.posts.findById(id);
+  }
+
+  listMineSince(
+    authorId: string,
+    since: Date,
+    limit: number,
+  ): Promise<PostRecord[]> {
+    return this.posts.listByAuthorSince(authorId, since, limit);
   }
 
   async search(q: string, limit: number): Promise<SearchPostsResult> {

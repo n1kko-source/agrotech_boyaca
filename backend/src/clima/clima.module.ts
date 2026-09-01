@@ -45,5 +45,6 @@ import { WEATHER_CLIENT } from './openweather/weather.client';
       },
     },
   ],
+  exports: [ClimaService, WEATHER_ALERTS],
 })
 export class ClimaModule {}

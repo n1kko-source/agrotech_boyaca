@@ -11,11 +11,13 @@ export type ProfileRecord = {
   bio: string;
   category: string;
   createdAt: Date;
+  updatedAt: Date;
 };
 
 export type RankedProfile = ProfileRecord & { rank: number };
 
 export type UpsertProfileInput = {
+  id?: string;
   userId: string;
   displayName: string;
   municipality: string;
@@ -27,6 +29,7 @@ export const PROFILES_STORE = Symbol('PROFILES_STORE');
 
 export interface ProfilesStore {
   upsert(input: UpsertProfileInput): Promise<ProfileRecord>;
+  findByUserId(userId: string): Promise<ProfileRecord | null>;
   search(q: string, limit: number): Promise<RankedProfile[]>;
 }
 
@@ -38,6 +41,7 @@ type RawSearchRow = {
   bio: string;
   category: string;
   created_at: Date;
+  updated_at: Date;
   rank: number;
 };
 
@@ -49,7 +53,7 @@ export class PrismaProfilesStore implements ProfilesStore {
     const row = await this.prisma.db.marketplaceProfile.upsert({
       where: { userId: input.userId },
       create: {
-        id: randomUUID(),
+        id: input.id ?? randomUUID(),
         userId: input.userId,
         displayName: input.displayName,
         municipality: input.municipality,
@@ -64,6 +68,13 @@ export class PrismaProfilesStore implements ProfilesStore {
       },
     });
     return toProfileRecord(row);
+  }
+
+  async findByUserId(userId: string): Promise<ProfileRecord | null> {
+    const row = await this.prisma.db.marketplaceProfile.findUnique({
+      where: { userId },
+    });
+    return row ? toProfileRecord(row) : null;
   }
 
   async search(q: string, limit: number): Promise<RankedProfile[]> {
@@ -83,6 +94,7 @@ export class PrismaProfilesStore implements ProfilesStore {
           p.bio,
           p.category,
           p.created_at,
+          p.updated_at,
           (
             ts_rank_cd(p.search_vector, q.query, 32) * 2.0
             + GREATEST(
@@ -119,17 +131,23 @@ export class MemoryProfilesStore implements ProfilesStore {
 
   upsert(input: UpsertProfileInput): Promise<ProfileRecord> {
     const existing = this.byUserId.get(input.userId);
+    const now = new Date();
     const row: ProfileRecord = {
-      id: existing?.id ?? randomUUID(),
+      id: existing?.id ?? input.id ?? randomUUID(),
       userId: input.userId,
       displayName: input.displayName,
       municipality: input.municipality,
       bio: input.bio,
       category: input.category,
-      createdAt: existing?.createdAt ?? new Date(),
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
     };
     this.byUserId.set(input.userId, row);
     return Promise.resolve(row);
+  }
+
+  findByUserId(userId: string): Promise<ProfileRecord | null> {
+    return Promise.resolve(this.byUserId.get(userId) ?? null);
   }
 
   search(q: string, limit: number): Promise<RankedProfile[]> {
@@ -161,6 +179,7 @@ function toProfileRecord(row: {
   bio: string;
   category: string;
   createdAt: Date;
+  updatedAt: Date;
 }): ProfileRecord {
   return {
     id: row.id,
@@ -170,6 +189,7 @@ function toProfileRecord(row: {
     bio: row.bio,
     category: row.category,
     createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 
@@ -182,6 +202,7 @@ function toRankedProfile(row: RawSearchRow): RankedProfile {
     bio: row.bio,
     category: row.category,
     createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
     rank: Number(row.rank),
   };
 }

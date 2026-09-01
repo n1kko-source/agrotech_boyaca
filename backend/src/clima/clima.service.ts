@@ -76,11 +76,17 @@ export class ClimaService {
 
   async upsertAlert(
     userId: string,
-    input: { municipio: string; kind: AlertKind; enabled?: boolean },
+    input: {
+      municipio: string;
+      kind: AlertKind;
+      enabled?: boolean;
+      id?: string;
+    },
   ): Promise<AlertView> {
     const municipio = requireMunicipio(input.municipio);
     const kind = requireKind(input.kind);
     const row = await this.alerts.upsert({
+      id: input.id,
       userId,
       municipio,
       kind,

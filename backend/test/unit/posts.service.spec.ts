@@ -65,6 +65,7 @@ describe('PostsService', () => {
           description: `Oferta de ${crop} fresca en Boyacá. Calidad de finca.`,
           category: crop,
           createdAt: now,
+          updatedAt: now,
         };
       }),
     );

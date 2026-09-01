@@ -31,12 +31,14 @@ export type MessageRecord = {
 };
 
 export type CreateConversationInput = {
+  id?: string;
   postId: string;
   initiatorId: string;
   peerId: string;
 };
 
 export type CreateMessageInput = {
+  id?: string;
   conversationId: string;
   senderId: string;
   body: string;
@@ -49,7 +51,18 @@ export interface ConversationsStore {
     initiatorId: string,
   ): Promise<ConversationRecord | null>;
   findById(id: string): Promise<ConversationRecord | null>;
+  findMessageById(id: string): Promise<MessageRecord | null>;
   addMessage(input: CreateMessageInput): Promise<MessageRecord>;
+  listForParticipantSince(
+    userId: string,
+    since: Date,
+    limit: number,
+  ): Promise<ConversationRecord[]>;
+  listMessagesForParticipantSince(
+    userId: string,
+    since: Date,
+    limit: number,
+  ): Promise<MessageRecord[]>;
   listMessages(
     conversationId: string,
     limit: number,
@@ -65,7 +78,7 @@ export class PrismaConversationsStore implements ConversationsStore {
     try {
       const row = await this.prisma.db.conversation.create({
         data: {
-          id: randomUUID(),
+          id: input.id ?? randomUUID(),
           postId: input.postId,
           initiatorId: input.initiatorId,
           peerId: input.peerId,
@@ -97,16 +110,55 @@ export class PrismaConversationsStore implements ConversationsStore {
     return row ? toConversation(row) : null;
   }
 
+  async findMessageById(id: string): Promise<MessageRecord | null> {
+    const row = await this.prisma.db.message.findUnique({ where: { id } });
+    return row ? toMessage(row) : null;
+  }
+
   async addMessage(input: CreateMessageInput): Promise<MessageRecord> {
     const row = await this.prisma.db.message.create({
       data: {
-        id: randomUUID(),
+        id: input.id ?? randomUUID(),
         conversationId: input.conversationId,
         senderId: input.senderId,
         body: input.body,
       },
     });
     return toMessage(row);
+  }
+
+  async listForParticipantSince(
+    userId: string,
+    since: Date,
+    limit: number,
+  ): Promise<ConversationRecord[]> {
+    const rows = await this.prisma.db.conversation.findMany({
+      where: {
+        OR: [{ initiatorId: userId }, { peerId: userId }],
+        createdAt: { gt: since },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: limit,
+    });
+    return rows.map(toConversation);
+  }
+
+  async listMessagesForParticipantSince(
+    userId: string,
+    since: Date,
+    limit: number,
+  ): Promise<MessageRecord[]> {
+    const rows = await this.prisma.db.message.findMany({
+      where: {
+        createdAt: { gt: since },
+        conversation: {
+          OR: [{ initiatorId: userId }, { peerId: userId }],
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: limit,
+    });
+    return rows.map(toMessage);
   }
 
   async listMessages(
@@ -153,7 +205,7 @@ export class MemoryConversationsStore implements ConversationsStore {
       return Promise.reject(new UniqueConversationError());
     }
     const row: ConversationRecord = {
-      id: randomUUID(),
+      id: input.id ?? randomUUID(),
       postId: input.postId,
       initiatorId: input.initiatorId,
       peerId: input.peerId,
@@ -180,10 +232,18 @@ export class MemoryConversationsStore implements ConversationsStore {
     );
   }
 
+  findMessageById(id: string): Promise<MessageRecord | null> {
+    return Promise.resolve(this.messages.find((row) => row.id === id) ?? null);
+  }
+
   addMessage(input: CreateMessageInput): Promise<MessageRecord> {
     const createdAt = new Date();
+    const last = this.messages[this.messages.length - 1];
+    if (last && last.t >= createdAt.getTime()) {
+      createdAt.setTime(last.t + 1);
+    }
     const row: MessageRecord = {
-      id: randomUUID(),
+      id: input.id ?? randomUUID(),
       conversationId: input.conversationId,
       senderId: input.senderId,
       body: input.body,
@@ -192,6 +252,56 @@ export class MemoryConversationsStore implements ConversationsStore {
     };
     this.messages.push(row);
     return Promise.resolve(row);
+  }
+
+  listForParticipantSince(
+    userId: string,
+    since: Date,
+    limit: number,
+  ): Promise<ConversationRecord[]> {
+    const sinceMs = since.getTime();
+    const rows = this.conversations
+      .filter(
+        (row) =>
+          (row.initiatorId === userId || row.peerId === userId) &&
+          row.createdAt.getTime() > sinceMs,
+      )
+      .sort((left, right) => {
+        const delta = left.createdAt.getTime() - right.createdAt.getTime();
+        if (delta !== 0) {
+          return delta;
+        }
+        return left.id.localeCompare(right.id);
+      })
+      .slice(0, limit);
+    return Promise.resolve(rows);
+  }
+
+  listMessagesForParticipantSince(
+    userId: string,
+    since: Date,
+    limit: number,
+  ): Promise<MessageRecord[]> {
+    const sinceMs = since.getTime();
+    const mine = new Set(
+      this.conversations
+        .filter((row) => row.initiatorId === userId || row.peerId === userId)
+        .map((row) => row.id),
+    );
+    const rows = this.messages
+      .filter(
+        (row) =>
+          mine.has(row.conversationId) && row.createdAt.getTime() > sinceMs,
+      )
+      .sort((left, right) => {
+        const delta = left.createdAt.getTime() - right.createdAt.getTime();
+        if (delta !== 0) {
+          return delta;
+        }
+        return left.id.localeCompare(right.id);
+      })
+      .slice(0, limit);
+    return Promise.resolve(rows);
   }
 
   listMessages(

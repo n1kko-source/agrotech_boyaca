@@ -16,6 +16,7 @@ export type PriceRecord = {
 };
 
 export type UpsertPriceInput = {
+  id?: string;
   producto: string;
   region: string;
   precio: number;
@@ -43,7 +44,7 @@ export class PrismaPricesStore implements PricesStore {
         },
       },
       create: {
-        id: randomUUID(),
+        id: input.id ?? randomUUID(),
         producto: input.producto,
         region: input.region,
         precio: new Prisma.Decimal(input.precio),
@@ -76,7 +77,7 @@ export class MemoryPricesStore implements PricesStore {
     const key = memoryKey(input.producto, input.region);
     const existing = this.rows.get(key);
     const row: PriceRecord = {
-      id: existing?.id ?? randomUUID(),
+      id: existing?.id ?? input.id ?? randomUUID(),
       producto: input.producto,
       region: input.region,
       precio: input.precio,
