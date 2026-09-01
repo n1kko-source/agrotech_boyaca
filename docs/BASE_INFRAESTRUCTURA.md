@@ -1,7 +1,7 @@
 # AgroTech Boyacá — Contexto arquitectónico
 
 > Guía base del proyecto. **El código en este repo manda.** Si un ticket Jira contradice lo implementado, se sigue el código y se actualiza este archivo en el mismo cambio.
-> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41), `AdminModule`, FTS de comunidad (AG-21), precios de commodities (AG-23), push FCM (AG-24), clima/alertas (AG-25), guías técnicas PDF/audio (AG-26) y login Flutter ramificado (AG-19).
+> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41), `AdminModule`, FTS de comunidad (AG-21), precios de commodities (AG-23), push FCM (AG-24), clima/alertas (AG-25), guías técnicas PDF/audio (AG-26), login Flutter ramificado (AG-19) y mensajería 1:1 (AG-22).
 
 ## Host de ejecución (canónico)
 
@@ -103,7 +103,7 @@ Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `NotificationsModule`
 | PrismaModule | Postgres (Supabase). `DATABASE_URL` pooler `:6543`; `DIRECT_URL` session `:5432` para migraciones/backups |
 | AuthModule | OTP NATURAL · registro/login JURIDICA · login ADMIN · issue/revoke refresh (una sesión por usuario) · `GET /auth/me` |
 | AdminModule | Operador: listar JURIDICA pendientes · `PATCH` verify · auditoría UUID · email de aviso |
-| ComunidadModule | Posts de marketplace · perfiles públicos productor/comprador · FTS PostgreSQL (`unaccent` + `pg_trgm`). Matching y mensajería aún no |
+| ComunidadModule | Posts de marketplace · perfiles públicos · FTS PostgreSQL · mensajería 1:1 (`/conversaciones`) con historial persistente y push FCM. Matching aún no |
 | CommoditiesModule | Precio vigente COP por producto+región · cache Redis TTL 60 s · invalidación al upsert. Solo JURIDICA verificada escribe |
 | NotificationsModule | FCM HTTP v1 · registro de token por dispositivo · `NotificationService.send(userId, payload)` (global, lo inyectan Comunidad/Commodities/Clima) · inbox Postgres si el dispositivo está offline · limpieza de tokens inválidos |
 | ClimaModule | OpenWeather (current + forecast 5d/3h) por municipio · cache Redis TTL 3 h · alertas `rain`/`frost` · job HTTP → `NotificationService` · WebSocket `/clima` complementario (no sustituye al push) |
@@ -177,10 +177,13 @@ Listados de marketplace. JWT de cualquier rol para buscar. Crear post o ficha p�
 | `POST` | `/posts` | NATURAL, JURIDICA | `{ title, description, category }` → 201 |
 | `GET` | `/profiles/search?q=&limit=` | JWT | Fichas públicas ranqueadas (nombre comercial, municipio, rubro, bio) |
 | `PUT` | `/profiles/me` | NATURAL, JURIDICA | Upsert de la ficha pública del `sub` |
+| `POST` | `/conversaciones` | NATURAL, JURIDICA | Body `{ postId }`. Abre un hilo 1:1 con el autor del post. Idempotente: mismo `postId`+iniciador → 200 con el mismo `id` (incluye carrera 2G: unique + relectura). Autor no puede abrir hilo consigo mismo → `400`. Post inexistente → `404`. `ADMIN` → `403` |
+| `POST` | `/conversaciones/:id/mensajes` | NATURAL, JURIDICA (participantes) | Body `{ body }` 1–500 chars, sin adjuntos. 201. Push FCM + inbox al otro participante. Extraño → `404` |
+| `GET` | `/conversaciones/:id/mensajes` | NATURAL, JURIDICA (participantes) | Cursor (`limit`/`cursor`), más recientes primero. `{ items, nextCursor }`. Extraño → `404` |
 
 Índice FTS: columna generada `search_vector` (config `spanish_unaccent`) + GIN `pg_trgm` sobre texto `unaccent`. Extensiones `unaccent` y `pg_trgm` (migración). Target: < 200 ms con ≥ 5.000 posts.
 
-Matching productor/comprador y mensajería siguen previstos; no hay endpoints de hilos ni de match.
+Matching productor/comprador sigue previsto; no hay endpoint de match. Mensajería: un hilo por (`postId`, iniciador). Un retry concurrente no duplica el hilo: unique `(postId, initiatorId)` + relectura → 200. No hay `GET /conversaciones` (bandeja) en este corte. El historial en `messages` es la evidencia de negociación para métricas de Modelo B (§ 8). El push usa `NotificationService.send` (título `Nuevo mensaje`, preview ≤ 80 chars, `data.conversationId` / `messageId` / `postId`). El texto del mensaje no es PII de Ley 1581; igual se redacta `req.body.body` en logs.
 
 ### 4.4.2 Commodities — contrato HTTP
 
@@ -257,6 +260,8 @@ Tabla `deletion_requests`: `user_id` único (solicitud de supresión). El MVP no
 Tablas `posts` y `marketplace_profiles`: listados públicos (título, rubro, municipio, bio). Sin PII. FTS en columna generada `search_vector` + índices GIN `pg_trgm` (extensiones `unaccent`, `pg_trgm`).
 
 Tabla `commodity_prices`: `producto` + `region` únicos, `precio` COP, `unidad`, `reported_by` (UUID). Sin PII.
+
+Tablas `conversations` y `messages`: hilo 1:1 anclado a un post (`post_id` + `initiator_id` únicos). Texto corto, sin adjuntos, sin PII de cuenta. `ON DELETE CASCADE` con `posts` y `users`.
 
 Tablas `device_tokens` y `notifications`: token FCM + inbox de push. Sin teléfono/email/NIT. `ON DELETE CASCADE` con `users`. Estados: `PENDING` \| `SENT` \| `DELIVERED`.
 
@@ -345,7 +350,7 @@ Plataforma no intermedia el dinero → Sin riesgo regulatorio financiero
 
 ### Comunicación entre usuarios
 
-- Mensajería directa interna → ComunidadModule (previsto)
+- Mensajería directa interna → ComunidadModule (`POST /conversaciones`, mensajes + push)
 - Canal: productor ↔ comprador negocian precio, cantidad y logística
 - Pago: fuera de la plataforma vía Nequi / Daviplata / transferencia
 
