@@ -44,6 +44,7 @@ export class CommoditiesService {
       region: string;
       precio: number;
       unidad?: string;
+      id?: string;
     },
   ): Promise<PriceView> {
     await this.assertVerifiedJuridica(reporterId);
@@ -53,6 +54,7 @@ export class CommoditiesService {
       ? normalizeCommodityLabel(input.unidad)
       : COMMODITY_UNIDAD_DEFAULT;
     const row = await this.prices.upsert({
+      id: input.id,
       producto,
       region,
       precio: input.precio,

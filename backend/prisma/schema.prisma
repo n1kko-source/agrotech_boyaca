@@ -49,6 +49,8 @@ model User {
   conversationsStarted    Conversation[] @relation("ConversationInitiator")
   conversationsReceived   Conversation[] @relation("ConversationPeer")
   messagesSent            Message[]
+  syncOps                 SyncOp[]
+  syncClocks              SyncClock[]
 
   @@map("users")
 }
@@ -250,4 +252,36 @@ model R2MonthlyRead {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("r2_monthly_reads")
+}
+
+/// Idempotent offline op log. `op_id` is client-generated (2G retries).
+model SyncOp {
+  opId      String   @id @map("op_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  entity    String
+  entityId  String   @map("entity_id")
+  status    String
+  reason    String?
+  record    Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("sync_ops")
+}
+
+/// LWW clock per entity key. `last_write_at` is the winning client timestamp.
+model SyncClock {
+  entity      String
+  entityKey   String   @map("entity_key")
+  lastWriteAt DateTime @map("last_write_at")
+  lastOpId    String   @map("last_op_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([entity, entityKey])
+  @@index([userId])
+  @@map("sync_clocks")
 }

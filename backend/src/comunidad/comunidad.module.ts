@@ -56,5 +56,13 @@ import {
       },
     },
   ],
+  exports: [
+    PostsService,
+    ProfilesService,
+    ConversationsService,
+    POSTS_STORE,
+    PROFILES_STORE,
+    CONVERSATIONS_STORE,
+  ],
 })
 export class ComunidadModule {}

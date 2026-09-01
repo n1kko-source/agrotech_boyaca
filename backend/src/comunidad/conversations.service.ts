@@ -51,6 +51,7 @@ export class ConversationsService {
   async start(
     initiatorId: string,
     postId: string,
+    id?: string,
   ): Promise<StartConversationResult> {
     const post = await this.posts.findById(postId);
     if (!post) {
@@ -70,6 +71,7 @@ export class ConversationsService {
     }
     try {
       const row = await this.conversations.create({
+        id,
         postId,
         initiatorId,
         peerId: post.authorId,
@@ -94,9 +96,11 @@ export class ConversationsService {
     userId: string,
     conversationId: string,
     body: string,
+    id?: string,
   ): Promise<MessageView> {
     const conversation = await this.requireParticipant(conversationId, userId);
     const row = await this.conversations.addMessage({
+      id,
       conversationId,
       senderId: userId,
       body,
@@ -135,6 +139,34 @@ export class ConversationsService {
       items: page.items.map(toMessageView),
       nextCursor: page.nextCursor,
     };
+  }
+
+  findMessageById(id: string): Promise<MessageRecord | null> {
+    return this.conversations.findMessageById(id);
+  }
+
+  findById(id: string): Promise<ConversationRecord | null> {
+    return this.conversations.findById(id);
+  }
+
+  listMineSince(
+    userId: string,
+    since: Date,
+    limit: number,
+  ): Promise<ConversationRecord[]> {
+    return this.conversations.listForParticipantSince(userId, since, limit);
+  }
+
+  listMessagesSince(
+    userId: string,
+    since: Date,
+    limit: number,
+  ): Promise<MessageRecord[]> {
+    return this.conversations.listMessagesForParticipantSince(
+      userId,
+      since,
+      limit,
+    );
   }
 
   private async requireParticipant(

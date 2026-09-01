@@ -1,7 +1,7 @@
 # AgroTech Boyacá — Contexto arquitectónico
 
 > Guía base del proyecto. **El código en este repo manda.** Si un ticket Jira contradice lo implementado, se sigue el código y se actualiza este archivo en el mismo cambio.
-> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41), `AdminModule`, FTS de comunidad (AG-21), precios de commodities (AG-23), push FCM (AG-24), clima/alertas (AG-25), guías técnicas PDF/audio (AG-26), login Flutter ramificado (AG-19) y mensajería 1:1 (AG-22).
+> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41), `AdminModule`, FTS de comunidad (AG-21), precios de commodities (AG-23), push FCM (AG-24), clima/alertas (AG-25), guías técnicas PDF/audio (AG-26), login Flutter ramificado (AG-19), mensajería 1:1 (AG-22) y sync offline LWW (AG-27).
 
 ## Host de ejecución (canónico)
 
@@ -66,7 +66,7 @@ ADMIN no es usuario de la app rural: opera contra la API (Postman / curl / futur
 
 - Desarrollo directo como app nativa Android con Flutter
 - Offline-first con SQLite local (`sqflite`) — persistencia de producto aún no; tokens de sesión sí (AG-19)
-- Sincronización con backend al recuperar señal vía `/sync` (módulo aún no implementado)
+- Sincronización con backend al recuperar señal vía `POST /sync` (AG-27: batch + LWW). Persistencia SQLite de producto aún no (AG-28)
 - Push notifications nativas vía FCM (`NotificationsModule`; módulo de noticias no implementado)
 - **Fase 2:** mismo codebase Flutter compila para iOS sin reescritura
 - PWA descartada: Service Workers poco confiables en 2G/3G rural
@@ -93,7 +93,7 @@ Código en `mobile/`. ADMIN no aparece en la app rural.
 
 **Justificación monolito:** evita latencia inter-servicio bajo 2G/3G, reduce complejidad operativa en fase MVP, extractable a microservicios cuando la carga lo justifique.
 
-Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `NotificationsModule`, `AuthModule`, `AdminModule`, `ComunidadModule`, `CommoditiesModule`, `ClimaModule`, `GuiasModule`.
+Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `NotificationsModule`, `AuthModule`, `AdminModule`, `ComunidadModule`, `CommoditiesModule`, `ClimaModule`, `GuiasModule`, `SyncModule`.
 
 ### 4.1 Módulos — implementados
 
@@ -108,13 +108,13 @@ Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `NotificationsModule`
 | NotificationsModule | FCM HTTP v1 · registro de token por dispositivo · `NotificationService.send(userId, payload)` (global, lo inyectan Comunidad/Commodities/Clima) · inbox Postgres si el dispositivo está offline · limpieza de tokens inválidos |
 | ClimaModule | OpenWeather (current + forecast 5d/3h) por municipio · cache Redis TTL 3 h · alertas `rain`/`frost` · job HTTP → `NotificationService` · WebSocket `/clima` complementario (no sustituye al push) |
 | GuiasModule | Metadata PDF/audio · upload ADMIN a R2 (`guias/`) · listado cursor · stream con Range · audio Opus 16 kbps · meter en `/health` |
+| SyncModule | `POST /sync` · batch offline (máx. 50 ops) · LWW con ventana de skew 5 min · delta user-scoped |
 
 ### 4.2 Módulos — previstos (aún no hay código)
 
 | Módulo | Responsabilidad |
 |---|---|
 | NoticiasModule | Contenido de noticias (el clima, las alertas y el push FCM ya viven en `ClimaModule` / `NotificationsModule`) |
-| SyncModule | `POST /sync` · batch offline · conflicto LWW |
 
 No implementar estos módulos “porque el ticket lo nombra” si el kernel de auth/admin no está cerrado. Extender este archivo cuando existan.
 
@@ -247,6 +247,30 @@ JWT de cualquier rol para listar/descargar. Escribir: solo `ADMIN`. Sin token �
 
 `GET /health` incluye `{ r2: { storageBytes, storageLimit: 10737418240, reads, readsLimit: 1000000, month } }`. `storageBytes` es la suma de guías (no incluye dumps de backup en el mismo bucket). `reads` son GetObject de `/archivo` en el mes UTC; Pino avisa al 80 % y al tope. El 10 GB / 1 M lecturas es el free tier del **bucket entero**.
 
+### 4.4.6 Sync offline — contrato HTTP (AG-27)
+
+Cola de escrituras del cliente rural (2G/3G). JWT `NATURAL` / `JURIDICA`. `ADMIN` → `403`. Sin token → `401`. El batch **no es atómico**: un op `rejected`/`conflict` no aborta los demás. HTTP 200 si el body es válido. Payload inválido a nivel DTO → `400`. Throttle 20 req/min.
+
+Cada op lleva `opId` (UUID v4, idempotencia de retry 2G) y `entityId` (UUID v4 generado en el dispositivo). `clientTs` es el reloj local de la escritura, no el de llegada al server.
+
+| Método | Ruta | Quién | Resultado |
+|---|---|---|---|
+| `POST` | `/sync` | NATURAL, JURIDICA | Body `{ since?: ISO-8601, ops?: SyncOp[] }`. `ops` máx. **50**. 200 `{ serverTime, results, delta }` |
+
+`SyncOp`: `{ opId, entity, entityId, clientTs, payload }`.
+
+`entity`: `post` \| `profile` \| `conversation` \| `message` \| `alerta` \| `precio`.
+
+`payload` reusa el contrato del endpoint de escritura (post: `{ title, description, category }`; profile: ficha pública; conversation: `{ postId }`; message: `{ conversationId, body }`; alerta: `{ municipio, kind, enabled? }`; precio: `{ producto, region, precio, unidad? }`).
+
+`results[]`: `{ opId, entity, entityId, status, reason?, record? }`. `status`: `applied` \| `conflict` \| `rejected`. El mismo `opId` replayed devuelve el resultado original (idempotente). `conflict` incluye `record` con la versión que ganó en server. `precio` desde NATURAL → `rejected` (`Forbidden`); JURIDICA no verificada igual.
+
+**LWW (ventana 5 min):** se compara `clientTs` contra el reloj de sync de esa entidad (`sync_clocks`), no contra `updatedAt` de Postgres (ese es el instante de apply). Gana el `clientTs` estrictamente mayor. Un `clientTs` más de **5 minutos en el futuro** → `rejected` (skew). Un timestamp de hace horas (cola offline) **sí aplica**. Creates append-only (`conversation`, `message`) no usan LWW: son idempotentes por `entityId`.
+
+**Delta:** user-scoped, exclusivo sobre `since` (el cliente guarda `serverTime`). Sin `since` → colecciones vacías (no se vuelca el mundo en 2G). Tope 50 ítems por colección. Incluye posts propios, ficha si cambió, hilos/mensajes donde el `sub` participa, alertas propias. No incluye el listado global de precios (sigue `GET /commodities/precios`).
+
+Orden: el cliente debe encolar padres antes que hijos (conversación antes que mensaje). El server procesa `ops` en orden.
+
 ### 4.5 Datos (Ley 1581)
 
 Tabla `users`: plaintext de teléfono / email / NIT **nunca** se guarda. Ciphertext `pgcrypto` AES-256 (`pgp_sym_encrypt`); lookup HMAC-SHA256 con `PII_HASH_PEPPER`. Constraints: NATURAL exige teléfono; JURIDICA exige email+NIT+`entity_type`; ADMIN exige email y no lleva NIT ni `entity_type`.
@@ -268,6 +292,8 @@ Tablas `device_tokens` y `notifications`: token FCM + inbox de push. Sin teléfo
 Tabla `weather_alerts`: umbral `rain`/`frost` por usuario+municipio. Sin PII. `last_fired_at` evita re-push antes de 12 h.
 
 Tabla `guias`: título, categoría, subsector, `kind` (`pdf`/`audio`), MIME, `size_bytes`, `object_key` (`guias/{uuid}.pdf|ogg`). Sin PII. Tabla `r2_monthly_reads`: lecturas Class B por mes UTC.
+
+Tablas `sync_ops` y `sync_clocks`: log idempotente de ops offline (`op_id` cliente) y reloj LWW por entidad. UUID + JSON de resultado. Sin PII de cuenta. `ON DELETE CASCADE` con `users`. El texto de `messages` en `record` no es PII de Ley 1581; igual se redacta `req.body.ops[*].payload.body`.
 
 Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, `fcmToken`, `OPENWEATHER_API_KEY`, `CLIMA_JOB_SECRET`, `R2_SECRET_ACCESS_KEY`, claves.
 
@@ -315,14 +341,15 @@ Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, `fcmToke
 
 ## 7. Estrategia offline-first
 
-Previsto para el cliente Flutter + `SyncModule` (aún no hay endpoint `/sync`):
+Backend `POST /sync` (AG-27) está implementado. El cliente Flutter aún no persiste la cola en SQLite (AG-28).
 
 ```
 Usuario sin señal → Opera con SQLite local
-                  → Cola de operaciones con timestamp local
-Al recuperar señal → POST /sync con batch de operaciones
-                   → Backend aplica Last-Write-Wins (ventana 5min)
-                   → Responde con delta de cambios del servidor
+                  → Cola de operaciones con timestamp local (clientTs) y UUID (opId, entityId)
+Al recuperar señal → POST /sync con batch de operaciones (máx. 50)
+                   → Backend aplica Last-Write-Wins (skew 5 min; cola de horas sí entra)
+                   → Responde con results por op + delta user-scoped desde `since`
+                   → Cliente guarda `serverTime` como próximo `since` y saca de la cola los applied
 ```
 
 Ningún endpoint crítico de producto (precios, ofertas, contactos) deberá exigir conexión en tiempo real cuando existan. Auth (OTP / login) sí requiere red.

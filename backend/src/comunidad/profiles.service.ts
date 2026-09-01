@@ -28,6 +28,10 @@ export class ProfilesService {
     @Inject(PROFILES_STORE) private readonly profiles: ProfilesStore,
   ) {}
 
+  findByUserId(userId: string): Promise<ProfileRecord | null> {
+    return this.profiles.findByUserId(userId);
+  }
+
   async upsert(
     userId: string,
     input: {
@@ -35,9 +39,11 @@ export class ProfilesService {
       municipality: string;
       category: string;
       bio?: string;
+      id?: string;
     },
   ): Promise<ProfileView> {
     const row = await this.profiles.upsert({
+      id: input.id,
       userId,
       displayName: input.displayName,
       municipality: input.municipality,

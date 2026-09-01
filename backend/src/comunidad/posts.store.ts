@@ -10,12 +10,20 @@ export type PostRecord = {
   description: string;
   category: string;
   createdAt: Date;
+  updatedAt: Date;
 };
 
 export type RankedPost = PostRecord & { rank: number };
 
 export type CreatePostInput = {
+  id?: string;
   authorId: string;
+  title: string;
+  description: string;
+  category: string;
+};
+
+export type UpdatePostInput = {
   title: string;
   description: string;
   category: string;
@@ -25,7 +33,13 @@ export const POSTS_STORE = Symbol('POSTS_STORE');
 
 export interface PostsStore {
   create(input: CreatePostInput): Promise<PostRecord>;
+  update(id: string, input: UpdatePostInput): Promise<PostRecord | null>;
   findById(id: string): Promise<PostRecord | null>;
+  listByAuthorSince(
+    authorId: string,
+    since: Date,
+    limit: number,
+  ): Promise<PostRecord[]>;
   search(q: string, limit: number): Promise<RankedPost[]>;
 }
 
@@ -36,6 +50,7 @@ type RawSearchRow = {
   description: string;
   category: string;
   created_at: Date;
+  updated_at: Date;
   rank: number;
 };
 
@@ -46,7 +61,7 @@ export class PrismaPostsStore implements PostsStore {
   async create(input: CreatePostInput): Promise<PostRecord> {
     const row = await this.prisma.db.post.create({
       data: {
-        id: randomUUID(),
+        id: input.id ?? randomUUID(),
         authorId: input.authorId,
         title: input.title,
         description: input.description,
@@ -54,6 +69,35 @@ export class PrismaPostsStore implements PostsStore {
       },
     });
     return toPostRecord(row);
+  }
+
+  async update(id: string, input: UpdatePostInput): Promise<PostRecord | null> {
+    const existing = await this.prisma.db.post.findUnique({ where: { id } });
+    if (!existing) {
+      return null;
+    }
+    const row = await this.prisma.db.post.update({
+      where: { id },
+      data: {
+        title: input.title,
+        description: input.description,
+        category: input.category,
+      },
+    });
+    return toPostRecord(row);
+  }
+
+  async listByAuthorSince(
+    authorId: string,
+    since: Date,
+    limit: number,
+  ): Promise<PostRecord[]> {
+    const rows = await this.prisma.db.post.findMany({
+      where: { authorId, updatedAt: { gt: since } },
+      orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
+      take: limit,
+    });
+    return rows.map(toPostRecord);
   }
 
   async findById(id: string): Promise<PostRecord | null> {
@@ -77,6 +121,7 @@ export class PrismaPostsStore implements PostsStore {
           p.description,
           p.category,
           p.created_at,
+          p.updated_at,
           (
             ts_rank_cd(p.search_vector, q.query, 32) * 2.0
             + GREATEST(
@@ -109,16 +154,51 @@ export class MemoryPostsStore implements PostsStore {
   readonly rows: PostRecord[] = [];
 
   create(input: CreatePostInput): Promise<PostRecord> {
+    const now = new Date();
     const row: PostRecord = {
-      id: randomUUID(),
+      id: input.id ?? randomUUID(),
       authorId: input.authorId,
       title: input.title,
       description: input.description,
       category: input.category,
-      createdAt: new Date(),
+      createdAt: now,
+      updatedAt: now,
     };
     this.rows.push(row);
     return Promise.resolve(row);
+  }
+
+  update(id: string, input: UpdatePostInput): Promise<PostRecord | null> {
+    const row = this.rows.find((item) => item.id === id);
+    if (!row) {
+      return Promise.resolve(null);
+    }
+    row.title = input.title;
+    row.description = input.description;
+    row.category = input.category;
+    row.updatedAt = new Date();
+    return Promise.resolve(row);
+  }
+
+  listByAuthorSince(
+    authorId: string,
+    since: Date,
+    limit: number,
+  ): Promise<PostRecord[]> {
+    const sinceMs = since.getTime();
+    const rows = this.rows
+      .filter(
+        (row) => row.authorId === authorId && row.updatedAt.getTime() > sinceMs,
+      )
+      .sort((left, right) => {
+        const delta = left.updatedAt.getTime() - right.updatedAt.getTime();
+        if (delta !== 0) {
+          return delta;
+        }
+        return left.id.localeCompare(right.id);
+      })
+      .slice(0, limit);
+    return Promise.resolve(rows);
   }
 
   findById(id: string): Promise<PostRecord | null> {
@@ -157,6 +237,7 @@ function toPostRecord(row: {
   description: string;
   category: string;
   createdAt: Date;
+  updatedAt: Date;
 }): PostRecord {
   return {
     id: row.id,
@@ -165,6 +246,7 @@ function toPostRecord(row: {
     description: row.description,
     category: row.category,
     createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 
@@ -176,6 +258,7 @@ function toRankedPost(row: RawSearchRow): RankedPost {
     description: row.description,
     category: row.category,
     createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
     rank: Number(row.rank),
   };
 }
