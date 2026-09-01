@@ -39,13 +39,16 @@ model User {
   createdAt               DateTime  @default(now()) @map("created_at")
   updatedAt               DateTime  @updatedAt @map("updated_at")
 
-  posts            Post[]
-  profile          MarketplaceProfile?
-  commodityPrices  CommodityPrice[]
-  deviceTokens     DeviceToken[]
-  notifications    Notification[]
-  weatherAlerts    WeatherAlert[]
-  guias            Guia[]
+  posts                   Post[]
+  profile                 MarketplaceProfile?
+  commodityPrices         CommodityPrice[]
+  deviceTokens            DeviceToken[]
+  notifications           Notification[]
+  weatherAlerts           WeatherAlert[]
+  guias                   Guia[]
+  conversationsStarted    Conversation[] @relation("ConversationInitiator")
+  conversationsReceived   Conversation[] @relation("ConversationPeer")
+  messagesSent            Message[]
 
   @@map("users")
 }
@@ -82,10 +85,47 @@ model Post {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  author        User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
 
   @@index([authorId])
   @@map("posts")
+}
+
+/// 1:1 thread between a listing author and one interested user. Not PII.
+/// Unique per (post, initiator) so 2G retries do not duplicate the thread.
+model Conversation {
+  id          String   @id @db.Uuid
+  postId      String   @map("post_id") @db.Uuid
+  initiatorId String   @map("initiator_id") @db.Uuid
+  peerId      String   @map("peer_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  post       Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  initiator  User      @relation("ConversationInitiator", fields: [initiatorId], references: [id], onDelete: Cascade)
+  peer       User      @relation("ConversationPeer", fields: [peerId], references: [id], onDelete: Cascade)
+  messages   Message[]
+
+  @@unique([postId, initiatorId])
+  @@index([initiatorId])
+  @@index([peerId])
+  @@map("conversations")
+}
+
+/// Short text only (no attachments in v1). Evidence for Modelo B metrics.
+model Message {
+  id             String   @id @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  senderId       String   @map("sender_id") @db.Uuid
+  body           String
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
 }
 
 /// Public producer/buyer card. No phone, email, or NIT.

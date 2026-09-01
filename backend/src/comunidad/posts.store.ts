@@ -25,6 +25,7 @@ export const POSTS_STORE = Symbol('POSTS_STORE');
 
 export interface PostsStore {
   create(input: CreatePostInput): Promise<PostRecord>;
+  findById(id: string): Promise<PostRecord | null>;
   search(q: string, limit: number): Promise<RankedPost[]>;
 }
 
@@ -53,6 +54,11 @@ export class PrismaPostsStore implements PostsStore {
       },
     });
     return toPostRecord(row);
+  }
+
+  async findById(id: string): Promise<PostRecord | null> {
+    const row = await this.prisma.db.post.findUnique({ where: { id } });
+    return row ? toPostRecord(row) : null;
   }
 
   async search(q: string, limit: number): Promise<RankedPost[]> {
@@ -113,6 +119,10 @@ export class MemoryPostsStore implements PostsStore {
     };
     this.rows.push(row);
     return Promise.resolve(row);
+  }
+
+  findById(id: string): Promise<PostRecord | null> {
+    return Promise.resolve(this.rows.find((row) => row.id === id) ?? null);
   }
 
   insertMany(rows: PostRecord[]): void {

@@ -77,6 +77,7 @@ export const PINO_REDACT_PATHS = [
   'req.body.recaptchaToken',
   'req.body.playIntegrityToken',
   'req.body.fcmToken',
+  'req.body.body',
   '*.fcmToken',
   '*.OPENWEATHER_API_KEY',
   '*.CLIMA_JOB_SECRET',

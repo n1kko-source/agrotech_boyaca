@@ -1,0 +1,5 @@
+export const MESSAGE_BODY_MIN = 1;
+export const MESSAGE_BODY_MAX = 500;
+export const MESSAGE_PUSH_PREVIEW_MAX = 80;
+export const MESSAGE_SEND_THROTTLE_LIMIT = 30;
+export const MESSAGE_SEND_THROTTLE_TTL_MS = 60_000;
