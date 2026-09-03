@@ -1,9 +1,14 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
+  NotFoundException,
+  Param,
+  ParseUUIDPipe,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -13,7 +18,7 @@ import { CurrentUser } from '../shared/decorators/current-user.decorator';
 import { Roles } from '../shared/decorators/roles.decorator';
 import { CreatePostDto } from './dto/create-post.dto';
 import { SearchQueryDto } from './dto/search-query.dto';
-import { PostsService } from './posts.service';
+import { PostsService, type PostView } from './posts.service';
 
 @Controller('posts')
 export class PostsController {
@@ -33,5 +38,48 @@ export class PostsController {
       description: dto.description,
       category: dto.category,
     });
+  }
+
+  @Get(':id')
+  async get(
+    @CurrentUser() user: JwtUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<PostView> {
+    const post = await this.posts.getForViewer(user.sub, id);
+    if (!post) {
+      throw new NotFoundException('Not found');
+    }
+    return post;
+  }
+
+  @Patch(':id')
+  @Roles(Role.NATURAL, Role.JURIDICA)
+  async update(
+    @CurrentUser() user: JwtUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreatePostDto,
+  ): Promise<PostView> {
+    const post = await this.posts.updateOwn(user.sub, id, {
+      title: dto.title,
+      description: dto.description,
+      category: dto.category,
+    });
+    if (!post) {
+      throw new NotFoundException('Not found');
+    }
+    return post;
+  }
+
+  @Delete(':id')
+  @Roles(Role.NATURAL, Role.JURIDICA)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async remove(
+    @CurrentUser() user: JwtUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    const deleted = await this.posts.deleteOwn(user.sub, id);
+    if (!deleted) {
+      throw new NotFoundException('Not found');
+    }
   }
 }

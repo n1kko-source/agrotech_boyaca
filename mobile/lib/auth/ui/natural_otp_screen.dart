@@ -7,6 +7,7 @@ import '../../config/api_config.dart';
 import '../auth_scope.dart';
 import '../models.dart';
 import 'privacy_consent.dart';
+import 'secure_screen.dart';
 
 class NaturalOtpScreen extends StatefulWidget {
   const NaturalOtpScreen({super.key, this.cooldownSeconds});
@@ -76,78 +77,79 @@ class _NaturalOtpScreenState extends State<NaturalOtpScreen> {
       return;
     }
     setState(() => _fieldError = null);
-    await AuthScope.of(context).verifyOtp(
-      code: code,
-      acceptPrivacyPolicy: true,
-    );
+    await AuthScope.of(
+      context,
+    ).verifyOtp(code: code, acceptPrivacyPolicy: true);
   }
 
   @override
   Widget build(BuildContext context) {
     final auth = AuthScope.of(context);
     final canResend = _remaining <= 0 && !auth.busy;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Código SMS')),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(24),
-          children: [
-            const Text(
-              'Ingrese el código de 6 dígitos. Si no llega, puede reenviar cuando el tiempo termine.',
-              style: TextStyle(fontSize: 16),
-            ),
-            const SizedBox(height: 24),
-            TextField(
-              key: const Key('otp_field'),
-              controller: _code,
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.done,
-              autofillHints: const [AutofillHints.oneTimeCode],
-              maxLength: 6,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: InputDecoration(
-                labelText: 'Código',
-                counterText: '',
-                errorText: _fieldError,
+    return SecureScreen(
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Código SMS')),
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(24),
+            children: [
+              const Text(
+                'Ingrese el código de 6 dígitos. Si no llega, puede reenviar cuando el tiempo termine.',
+                style: TextStyle(fontSize: 16),
               ),
-              onSubmitted: (_) => _verify(),
-            ),
-            const SizedBox(height: 8),
-            PrivacyConsent(
-              policy: _policy,
-              accepted: _accepted,
-              onChanged: (value) => setState(() => _accepted = value),
-            ),
-            if (auth.errorMessage != null) ...[
+              const SizedBox(height: 24),
+              TextField(
+                key: const Key('otp_field'),
+                controller: _code,
+                keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.done,
+                autofillHints: const [AutofillHints.oneTimeCode],
+                maxLength: 6,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: InputDecoration(
+                  labelText: 'Código',
+                  counterText: '',
+                  errorText: _fieldError,
+                ),
+                onSubmitted: (_) => _verify(),
+              ),
               const SizedBox(height: 8),
-              Text(
-                auth.errorMessage!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              PrivacyConsent(
+                policy: _policy,
+                accepted: _accepted,
+                onChanged: (value) => setState(() => _accepted = value),
+              ),
+              if (auth.errorMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  auth.errorMessage!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
+              const SizedBox(height: 16),
+              FilledButton(
+                key: const Key('verify_otp'),
+                onPressed: auth.busy ? null : _verify,
+                child: auth.busy
+                    ? const SizedBox(
+                        height: 22,
+                        width: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Verificar e ingresar'),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton(
+                key: const Key('resend_otp'),
+                onPressed: canResend ? _resend : null,
+                child: Text(
+                  canResend
+                      ? 'Reenviar código'
+                      : 'Reenviar en 0:${_remaining.toString().padLeft(2, '0')}',
+                ),
               ),
             ],
-            const SizedBox(height: 16),
-            FilledButton(
-              key: const Key('verify_otp'),
-              onPressed: auth.busy ? null : _verify,
-              child: auth.busy
-                  ? const SizedBox(
-                      height: 22,
-                      width: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Verificar e ingresar'),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton(
-              key: const Key('resend_otp'),
-              onPressed: canResend ? _resend : null,
-              child: Text(
-                canResend
-                    ? 'Reenviar código'
-                    : 'Reenviar en 0:${_remaining.toString().padLeft(2, '0')}',
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

@@ -1,5 +1,10 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { CLOCK, systemClock, type Clock } from '../suscripciones/clock';
+import { isListed } from '../suscripciones/subscription-status';
+import {
+  SUBSCRIPTIONS_STORE,
+  type SubscriptionsStore,
+} from '../suscripciones/subscriptions.store';
 import { POSTS_STORE } from './posts.store';
 import type { PostsStore, RankedPost, PostRecord } from './posts.store';
 
@@ -22,6 +27,9 @@ export type SearchPostsResult = {
 export class PostsService {
   constructor(
     @Inject(POSTS_STORE) private readonly posts: PostsStore,
+    @Optional()
+    @Inject(SUBSCRIPTIONS_STORE)
+    private readonly subscriptions?: SubscriptionsStore,
     @Optional() @Inject(CLOCK) clock?: Clock,
   ) {
     this.clock = clock ?? systemClock;
@@ -57,6 +65,31 @@ export class PostsService {
 
   findById(id: string): Promise<PostRecord | null> {
     return this.posts.findById(id);
+  }
+
+  async getForViewer(viewerId: string, id: string): Promise<PostView | null> {
+    const post = await this.posts.findById(id);
+    if (!post) {
+      return null;
+    }
+    if (post.authorId === viewerId) {
+      return toPostView(post);
+    }
+    const sub = this.subscriptions
+      ? await this.subscriptions.findByUserId(post.authorId)
+      : null;
+    if (!isListed(sub?.currentPeriodEnd ?? null, this.clock())) {
+      return null;
+    }
+    return toPostView(post);
+  }
+
+  async deleteOwn(authorId: string, id: string): Promise<boolean> {
+    const existing = await this.posts.findById(id);
+    if (!existing || existing.authorId !== authorId) {
+      return false;
+    }
+    return this.posts.delete(id);
   }
 
   listMineSince(

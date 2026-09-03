@@ -15,6 +15,7 @@ import { PRIVACY_POLICY_VERSION } from '../legal/privacy-policy';
 import { fcmDeviceFrom } from '../notifications/dto/optional-fcm-device.dto';
 import { NotificationService } from '../notifications/notifications.service';
 import { Role } from '../shared/auth/role.enum';
+import { resolvePepper } from '../shared/config/pii-keys';
 import { LoginAdminDto } from './dto/login-admin.dto';
 import { LoginJuridicaDto } from './dto/login-juridica.dto';
 import { RegisterJuridicaDto } from './dto/register-juridica.dto';
@@ -259,11 +260,7 @@ export class AuthService {
   }
 
   private hashPhone(phoneE164: string): string {
-    const pepper = this.config.get<string>('PII_HASH_PEPPER')?.trim();
-    if (!pepper && this.config.get<string>('NODE_ENV') === 'production') {
-      throw new ServiceUnavailableException('PII keys unavailable');
-    }
-    return phoneLookupHash(phoneE164, pepper || 'dev-pepper');
+    return phoneLookupHash(phoneE164, resolvePepper(this.config));
   }
 
   private async compensateFirebaseSignUp(idToken: string): Promise<void> {

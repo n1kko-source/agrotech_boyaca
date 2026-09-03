@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { PostsService } from '../../src/comunidad/posts.service';
 import { MemoryPostsStore } from '../../src/comunidad/posts.store';
+import { SUSCRIPCION_GRACE_MS } from '../../src/suscripciones/suscripciones.constants';
+import { MemorySubscriptionsStore } from '../../src/suscripciones/subscriptions.store';
 
 const CROPS = [
   'papa',
@@ -76,5 +78,124 @@ describe('PostsService', () => {
     expect(page.items[0]?.rank ?? 0).toBeGreaterThanOrEqual(
       page.items[page.items.length - 1]?.rank ?? 0,
     );
+  });
+
+  const T0 = new Date('2026-09-01T12:00:00.000Z');
+  const AUTHOR = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const VIEWER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+  async function listingService(periodEnd: Date | null) {
+    const store = new MemoryPostsStore();
+    const subscriptions = new MemorySubscriptionsStore();
+    if (periodEnd) {
+      await subscriptions.upsert({
+        userId: AUTHOR,
+        currentPeriodEnd: periodEnd,
+        remindedExpiryAt: null,
+        remindedGraceAt: null,
+        remindedHiddenAt: null,
+      });
+    }
+    return {
+      store,
+      service: new PostsService(store, subscriptions, () => T0),
+    };
+  }
+
+  it('lets the owner read an unlisted post and hides it from others', async () => {
+    const { store, service } = await listingService(null);
+    const post = await store.create({
+      authorId: AUTHOR,
+      title: 'Papa criolla',
+      description: 'Bultos de 50 kg',
+      category: 'papa',
+    });
+
+    const mine = await service.getForViewer(AUTHOR, post.id);
+    expect(mine).toMatchObject({
+      id: post.id,
+      authorId: AUTHOR,
+      title: 'Papa criolla',
+    });
+    expect(JSON.stringify(mine)).not.toContain('en_gracia');
+
+    await expect(service.getForViewer(VIEWER, post.id)).resolves.toBeNull();
+    await expect(
+      service.getForViewer(VIEWER, randomUUID()),
+    ).resolves.toBeNull();
+  });
+
+  it('lists a post to others only while the author is activa or en_gracia', async () => {
+    const listed = await listingService(T0);
+    const post = await listed.store.create({
+      authorId: AUTHOR,
+      title: 'Cebolla cabezona',
+      description: 'Roja',
+      category: 'cebolla',
+    });
+    const view = await listed.service.getForViewer(VIEWER, post.id);
+    expect(view?.id).toBe(post.id);
+
+    const grace = await listingService(
+      new Date(T0.getTime() - SUSCRIPCION_GRACE_MS + 60_000),
+    );
+    const gracePost = await grace.store.create({
+      authorId: AUTHOR,
+      title: 'Cebolla en gracia',
+      description: 'Roja',
+      category: 'cebolla',
+    });
+    await expect(
+      grace.service.getForViewer(VIEWER, gracePost.id),
+    ).resolves.toMatchObject({ id: gracePost.id });
+
+    const expired = await listingService(
+      new Date(T0.getTime() - SUSCRIPCION_GRACE_MS - 1),
+    );
+    const expiredPost = await expired.store.create({
+      authorId: AUTHOR,
+      title: 'Cebolla vencida',
+      description: 'Roja',
+      category: 'cebolla',
+    });
+    await expect(
+      expired.service.getForViewer(VIEWER, expiredPost.id),
+    ).resolves.toBeNull();
+    await expect(
+      expired.service.getForViewer(AUTHOR, expiredPost.id),
+    ).resolves.toMatchObject({ id: expiredPost.id });
+  });
+
+  it('deleteOwn removes only the author row', async () => {
+    const store = new MemoryPostsStore();
+    const service = new PostsService(
+      store,
+      new MemorySubscriptionsStore(),
+      () => T0,
+    );
+    const mine = await store.create({
+      authorId: AUTHOR,
+      title: 'Papa criolla',
+      description: 'Bultos',
+      category: 'papa',
+    });
+    const other = await store.create({
+      authorId: VIEWER,
+      title: 'Maiz',
+      description: 'Seco',
+      category: 'maiz',
+    });
+
+    await expect(service.deleteOwn(VIEWER, mine.id)).resolves.toBe(false);
+    await expect(store.findById(mine.id)).resolves.toMatchObject({
+      id: mine.id,
+    });
+    await expect(service.deleteOwn(AUTHOR, randomUUID())).resolves.toBe(false);
+
+    await expect(service.deleteOwn(AUTHOR, mine.id)).resolves.toBe(true);
+    await expect(store.findById(mine.id)).resolves.toBeNull();
+    await expect(store.findById(other.id)).resolves.toMatchObject({
+      id: other.id,
+    });
   });
 });

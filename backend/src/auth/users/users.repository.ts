@@ -17,6 +17,7 @@ import {
 } from '../entity-type';
 import { maskNit, nitLookupHash } from '../nit/nit';
 import { phoneLookupHash } from '../phone/phone';
+import { requirePiiKeys, resolvePepper } from '../../shared/config/pii-keys';
 
 export const PGP_ENCRYPT_OPTIONS = 'cipher-algo=aes256';
 
@@ -324,12 +325,7 @@ export class PrismaUsersRepository implements UsersRepository {
   }
 
   private requireKeys(): { pepper: string; encKey: string } {
-    const pepper = this.config.get<string>('PII_HASH_PEPPER')?.trim();
-    const encKey = this.config.get<string>('PII_ENCRYPTION_KEY')?.trim();
-    if (!pepper || !encKey) {
-      throw new ServiceUnavailableException('PII keys unavailable');
-    }
-    return { pepper, encKey };
+    return requirePiiKeys(this.config);
   }
 }
 
@@ -515,7 +511,7 @@ export class InMemoryUsersRepository implements UsersRepository {
   }
 
   private pepper(): string {
-    return this.config.get<string>('PII_HASH_PEPPER')?.trim() || 'dev-pepper';
+    return resolvePepper(this.config);
   }
 }
 

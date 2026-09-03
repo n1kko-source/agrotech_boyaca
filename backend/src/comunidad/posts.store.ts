@@ -37,6 +37,7 @@ export interface PostsStore {
   create(input: CreatePostInput): Promise<PostRecord>;
   update(id: string, input: UpdatePostInput): Promise<PostRecord | null>;
   findById(id: string): Promise<PostRecord | null>;
+  delete(id: string): Promise<boolean>;
   listByAuthorSince(
     authorId: string,
     since: Date,
@@ -105,6 +106,16 @@ export class PrismaPostsStore implements PostsStore {
   async findById(id: string): Promise<PostRecord | null> {
     const row = await this.prisma.db.post.findUnique({ where: { id } });
     return row ? toPostRecord(row) : null;
+  }
+
+  /** Postgres ON DELETE CASCADE drops conversations/messages of this post. */
+  async delete(id: string): Promise<boolean> {
+    try {
+      await this.prisma.db.post.delete({ where: { id } });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async search(
@@ -215,6 +226,15 @@ export class MemoryPostsStore implements PostsStore {
 
   findById(id: string): Promise<PostRecord | null> {
     return Promise.resolve(this.rows.find((row) => row.id === id) ?? null);
+  }
+
+  delete(id: string): Promise<boolean> {
+    const index = this.rows.findIndex((row) => row.id === id);
+    if (index < 0) {
+      return Promise.resolve(false);
+    }
+    this.rows.splice(index, 1);
+    return Promise.resolve(true);
   }
 
   insertMany(rows: PostRecord[]): void {

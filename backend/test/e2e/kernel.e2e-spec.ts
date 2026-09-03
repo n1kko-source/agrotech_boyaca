@@ -16,7 +16,7 @@ describe('Shared kernel (e2e)', () => {
       controllers: [KernelProbeController],
     }).compile();
 
-    app = moduleFixture.createNestApplication();
+    app = moduleFixture.createNestApplication({ bodyParser: false });
     configureApp(app);
     await app.init();
   });
@@ -76,5 +76,22 @@ describe('Shared kernel (e2e)', () => {
       .expect(200);
 
     expect(res.headers['content-encoding']).toBe('gzip');
+  });
+
+  it('sets Helmet nosniff on JSON responses', async () => {
+    const res = await request(app.getHttpServer()).get('/health').expect(200);
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['x-frame-options']).toBeDefined();
+  });
+
+  it('rejects JSON bodies over 256kb', async () => {
+    await request(app.getHttpServer())
+      .post('/kernel-probe/validate')
+      .send({ name: 'x'.repeat(300_000) })
+      .expect(413)
+      .expect((res) => {
+        const body = res.body as { error: { code: string } };
+        expect(body.error.code).toBe(ErrorCode.VALIDATION_ERROR);
+      });
   });
 });
