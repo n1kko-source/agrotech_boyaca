@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { isListed } from '../suscripciones/subscription-status';
+import type { SubscriptionsStore } from '../suscripciones/subscriptions.store';
 import { rankDocument } from './search/fts';
 
 export type PostRecord = {
@@ -40,7 +42,7 @@ export interface PostsStore {
     since: Date,
     limit: number,
   ): Promise<PostRecord[]>;
-  search(q: string, limit: number): Promise<RankedPost[]>;
+  search(q: string, limit: number, asOf?: Date): Promise<RankedPost[]>;
 }
 
 type RawSearchRow = {
@@ -105,7 +107,11 @@ export class PrismaPostsStore implements PostsStore {
     return row ? toPostRecord(row) : null;
   }
 
-  async search(q: string, limit: number): Promise<RankedPost[]> {
+  async search(
+    q: string,
+    limit: number,
+    asOf = new Date(),
+  ): Promise<RankedPost[]> {
     const rows = await this.prisma.db.$transaction(async (tx) => {
       await tx.$executeRaw`
         SELECT set_config('pg_trgm.similarity_threshold', '0.2', true)
@@ -131,16 +137,20 @@ export class PrismaPostsStore implements PostsStore {
               )
           )::float8 AS rank
         FROM posts p
+        INNER JOIN subscriptions s ON s.user_id = p.author_id
         CROSS JOIN LATERAL (
           SELECT plainto_tsquery('public.spanish_unaccent', public.f_unaccent(${q})) AS query
         ) q
         WHERE
-          (q.query <> ''::tsquery AND p.search_vector @@ q.query)
-          OR public.f_unaccent(p.title) % public.f_unaccent(${q})
-          OR public.f_unaccent(p.title) %> public.f_unaccent(${q})
-          OR public.f_unaccent(p.category) % public.f_unaccent(${q})
-          OR public.f_unaccent(p.category) %> public.f_unaccent(${q})
-          OR public.f_unaccent(p.description) %> public.f_unaccent(${q})
+          s.current_period_end + INTERVAL '4 days' >= ${asOf}
+          AND (
+            (q.query <> ''::tsquery AND p.search_vector @@ q.query)
+            OR public.f_unaccent(p.title) % public.f_unaccent(${q})
+            OR public.f_unaccent(p.title) %> public.f_unaccent(${q})
+            OR public.f_unaccent(p.category) % public.f_unaccent(${q})
+            OR public.f_unaccent(p.category) %> public.f_unaccent(${q})
+            OR public.f_unaccent(p.description) %> public.f_unaccent(${q})
+          )
         ORDER BY rank DESC, p.id ASC
         LIMIT ${limit}
       `;
@@ -152,6 +162,8 @@ export class PrismaPostsStore implements PostsStore {
 @Injectable()
 export class MemoryPostsStore implements PostsStore {
   readonly rows: PostRecord[] = [];
+
+  constructor(private readonly subscriptions?: SubscriptionsStore) {}
 
   create(input: CreatePostInput): Promise<PostRecord> {
     const now = new Date();
@@ -209,9 +221,15 @@ export class MemoryPostsStore implements PostsStore {
     this.rows.push(...rows);
   }
 
-  search(q: string, limit: number): Promise<RankedPost[]> {
+  search(q: string, limit: number, asOf = new Date()): Promise<RankedPost[]> {
     const ranked: RankedPost[] = [];
     for (const row of this.rows) {
+      if (
+        this.subscriptions &&
+        !isListed(this.subscriptions.getPeriodEnd(row.authorId), asOf)
+      ) {
+        continue;
+      }
       const rank = rankDocument(q, {
         a: [row.title, row.category],
         b: [row.description],

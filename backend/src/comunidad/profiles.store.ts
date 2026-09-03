@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { isListed } from '../suscripciones/subscription-status';
+import type { SubscriptionsStore } from '../suscripciones/subscriptions.store';
 import { rankDocument } from './search/fts';
 
 export type ProfileRecord = {
@@ -30,7 +32,7 @@ export const PROFILES_STORE = Symbol('PROFILES_STORE');
 export interface ProfilesStore {
   upsert(input: UpsertProfileInput): Promise<ProfileRecord>;
   findByUserId(userId: string): Promise<ProfileRecord | null>;
-  search(q: string, limit: number): Promise<RankedProfile[]>;
+  search(q: string, limit: number, asOf?: Date): Promise<RankedProfile[]>;
 }
 
 type RawSearchRow = {
@@ -77,7 +79,11 @@ export class PrismaProfilesStore implements ProfilesStore {
     return row ? toProfileRecord(row) : null;
   }
 
-  async search(q: string, limit: number): Promise<RankedProfile[]> {
+  async search(
+    q: string,
+    limit: number,
+    asOf = new Date(),
+  ): Promise<RankedProfile[]> {
     const rows = await this.prisma.db.$transaction(async (tx) => {
       await tx.$executeRaw`
         SELECT set_config('pg_trgm.similarity_threshold', '0.2', true)
@@ -105,18 +111,22 @@ export class PrismaProfilesStore implements ProfilesStore {
               )
           )::float8 AS rank
         FROM marketplace_profiles p
+        INNER JOIN subscriptions s ON s.user_id = p.user_id
         CROSS JOIN LATERAL (
           SELECT plainto_tsquery('public.spanish_unaccent', public.f_unaccent(${q})) AS query
         ) q
         WHERE
-          (q.query <> ''::tsquery AND p.search_vector @@ q.query)
-          OR public.f_unaccent(p.display_name) % public.f_unaccent(${q})
-          OR public.f_unaccent(p.display_name) %> public.f_unaccent(${q})
-          OR public.f_unaccent(p.municipality) % public.f_unaccent(${q})
-          OR public.f_unaccent(p.municipality) %> public.f_unaccent(${q})
-          OR public.f_unaccent(p.category) % public.f_unaccent(${q})
-          OR public.f_unaccent(p.category) %> public.f_unaccent(${q})
-          OR public.f_unaccent(p.bio) %> public.f_unaccent(${q})
+          s.current_period_end + INTERVAL '4 days' >= ${asOf}
+          AND (
+            (q.query <> ''::tsquery AND p.search_vector @@ q.query)
+            OR public.f_unaccent(p.display_name) % public.f_unaccent(${q})
+            OR public.f_unaccent(p.display_name) %> public.f_unaccent(${q})
+            OR public.f_unaccent(p.municipality) % public.f_unaccent(${q})
+            OR public.f_unaccent(p.municipality) %> public.f_unaccent(${q})
+            OR public.f_unaccent(p.category) % public.f_unaccent(${q})
+            OR public.f_unaccent(p.category) %> public.f_unaccent(${q})
+            OR public.f_unaccent(p.bio) %> public.f_unaccent(${q})
+          )
         ORDER BY rank DESC, p.id ASC
         LIMIT ${limit}
       `;
@@ -128,6 +138,8 @@ export class PrismaProfilesStore implements ProfilesStore {
 @Injectable()
 export class MemoryProfilesStore implements ProfilesStore {
   readonly byUserId = new Map<string, ProfileRecord>();
+
+  constructor(private readonly subscriptions?: SubscriptionsStore) {}
 
   upsert(input: UpsertProfileInput): Promise<ProfileRecord> {
     const existing = this.byUserId.get(input.userId);
@@ -150,9 +162,19 @@ export class MemoryProfilesStore implements ProfilesStore {
     return Promise.resolve(this.byUserId.get(userId) ?? null);
   }
 
-  search(q: string, limit: number): Promise<RankedProfile[]> {
+  search(
+    q: string,
+    limit: number,
+    asOf = new Date(),
+  ): Promise<RankedProfile[]> {
     const ranked: RankedProfile[] = [];
     for (const row of this.byUserId.values()) {
+      if (
+        this.subscriptions &&
+        !isListed(this.subscriptions.getPeriodEnd(row.userId), asOf)
+      ) {
+        continue;
+      }
       const rank = rankDocument(q, {
         a: [row.displayName, row.municipality, row.category],
         b: [row.bio],

@@ -41,3 +41,17 @@ Mismo proveedor (cron-job.org). No uses `@Cron` dentro del proceso Nest: Render 
 | Esperado | HTTP 200 + `{ "evaluated": n, "fired": n }` |
 
 El ping de `/health` cada 10 min suele tener el servicio despierto; el job reusa el cache Redis de clima (TTL 3 h) y dispara FCM vía `NotificationService`.
+
+## Job de suscripciones (AG-29)
+
+Mismo proveedor. No uses `@Cron` dentro del proceso Nest: Render Free hiberna.
+
+| Campo | Valor |
+|-------|--------|
+| URL | `https://agrotech-8p9b.onrender.com/suscripciones/jobs/evaluate` |
+| Método | `POST` |
+| Header | `x-suscripciones-job-secret: <SUSCRIPCIONES_JOB_SECRET>` |
+| Intervalo | diario (`0 11 * * *` UTC ≈ 06:00 COT) |
+| Esperado | HTTP 200 + `{ "evaluated": n, "fired": n }` |
+
+El job no oculta posts: el search deriva visibilidad de `currentPeriodEnd`. Solo dispara push (3 días antes / entra gracia / se oculta), una vez por periodo.

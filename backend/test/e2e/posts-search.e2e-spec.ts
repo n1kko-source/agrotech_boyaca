@@ -4,10 +4,15 @@ import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../../src/app.module';
+import { FirebaseEmailClient } from '../../src/auth/email/firebase-email.client';
+import { USERS_REPOSITORY } from '../../src/auth/users/users.repository';
+import type { UsersRepository } from '../../src/auth/users/users.repository';
 import { configureApp } from '../../src/shared/configure-app';
 import { ErrorCode } from '../../src/shared/dto/api-error';
 
 const PHONE = '+573001112277';
+const ADMIN_EMAIL = 'ops-search@example.com';
+const ADMIN_PASSWORD = 'AdminClave1';
 
 const { publicKey, privateKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,
@@ -53,6 +58,30 @@ describe('Posts and profiles search (e2e)', () => {
     configureApp(app);
     await app.init();
     token = await naturalToken(app);
+
+    const me = await request(app.getHttpServer())
+      .get('/auth/me')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const userId = (me.body as { sub: string }).sub;
+    const users = app.get<UsersRepository>(USERS_REPOSITORY);
+    const firebase = app.get(FirebaseEmailClient);
+    const signed = await firebase.signUp(ADMIN_EMAIL, ADMIN_PASSWORD);
+    await firebase.sendEmailVerification(signed.idToken);
+    await users.createAdmin({
+      email: ADMIN_EMAIL,
+      firebaseUid: signed.localId,
+    });
+    const adminLogin = await request(app.getHttpServer())
+      .post('/auth/login/admin')
+      .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD })
+      .expect(200);
+    const adminToken = (adminLogin.body as { accessToken: string }).accessToken;
+    await request(app.getHttpServer())
+      .post(`/admin/suscripciones/${userId}/pagos`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ channel: 'transferencia', reference: 'SEARCH-E2E' })
+      .expect(200);
   });
 
   afterAll(async () => {

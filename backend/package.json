@@ -27,7 +27,8 @@
     "test:integration": "jest --config ./test/jest-integration.json",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "auth:verify-juridica": "node scripts/verify-juridica.cjs",
-    "auth:create-admin": "node scripts/create-admin.cjs"
+    "auth:create-admin": "node scripts/create-admin.cjs",
+    "suscripciones:grant": "node scripts/grant-suscripcion.cjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1121.0",

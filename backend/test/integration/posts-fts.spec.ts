@@ -41,6 +41,17 @@ describeFts('Posts FTS on Postgres (AG-21)', () => {
       )
       ON CONFLICT (id) DO NOTHING
     `;
+    await prisma.$executeRaw`
+      INSERT INTO subscriptions (user_id, current_period_end, updated_at)
+      VALUES (
+        ${AUTHOR_ID}::uuid,
+        NOW() + INTERVAL '30 days',
+        NOW()
+      )
+      ON CONFLICT (user_id) DO UPDATE SET
+        current_period_end = NOW() + INTERVAL '30 days',
+        updated_at = NOW()
+    `;
     await prisma.$executeRaw`DELETE FROM posts WHERE author_id = ${AUTHOR_ID}::uuid`;
     await prisma.$executeRaw`
       INSERT INTO posts (id, author_id, title, description, category, created_at, updated_at)
