@@ -1,6 +1,7 @@
 import { createHmac, randomInt } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { resolvePepper } from '../../shared/config/pii-keys';
 import { KV_STORE } from '../../shared/redis/kv-store';
 import type { KvStore } from '../../shared/redis/kv-store';
 import { FirebaseOtpClient } from './firebase-otp.client';
@@ -161,7 +162,7 @@ export class OtpService {
   }
 
   private pepper(): string {
-    return this.config.get<string>('PII_HASH_PEPPER')?.trim() || 'dev-pepper';
+    return resolvePepper(this.config);
   }
 
   private exposeDevCode(): boolean {

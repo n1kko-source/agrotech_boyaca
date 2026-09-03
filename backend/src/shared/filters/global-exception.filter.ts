@@ -34,7 +34,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     if (exception instanceof ThrottlerException) {
       return HttpStatus.TOO_MANY_REQUESTS;
     }
-    if (isMulterLimit(exception)) {
+    if (isMulterLimit(exception) || isEntityTooLarge(exception)) {
       return HttpStatus.PAYLOAD_TOO_LARGE;
     }
     if (exception instanceof HttpException) {
@@ -54,6 +54,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         error: {
           code: ErrorCode.VALIDATION_ERROR,
           message: 'File too large',
+        },
+      };
+    }
+    if (isEntityTooLarge(exception)) {
+      return {
+        error: {
+          code: ErrorCode.VALIDATION_ERROR,
+          message: 'Payload too large',
         },
       };
     }
@@ -85,6 +93,14 @@ function isMulterLimit(exception: unknown): boolean {
     return false;
   }
   return (exception as Error & { code?: string }).code === 'LIMIT_FILE_SIZE';
+}
+
+function isEntityTooLarge(exception: unknown): boolean {
+  if (!(exception instanceof Error)) {
+    return false;
+  }
+  const err = exception as Error & { status?: number; type?: string };
+  return err.status === 413 || err.type === 'entity.too.large';
 }
 
 function statusToCode(status: number): ErrorCode {

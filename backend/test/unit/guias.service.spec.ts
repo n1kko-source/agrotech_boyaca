@@ -1,4 +1,8 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import type { AudioCompressor } from '../../src/guias/audio.compressor';
 import {
   AUDIO_OPUS_EXT,
@@ -119,6 +123,58 @@ describe('GuiasService', () => {
         },
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects a PDF MIME that is not a PDF', async () => {
+    const { service } = setup();
+    await expect(
+      service.create(
+        ADMIN,
+        { titulo: 'x', categoria: 'y', subsector: 'z' },
+        {
+          buffer: Buffer.from('not a pdf'),
+          mimetype: 'application/pdf',
+          size: 9,
+          originalname: 'siembra.pdf',
+        },
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects audio when compression fails', async () => {
+    const { service, audio } = setup();
+    audio.compress.mockRejectedValue(new Error('ffmpeg exit 1'));
+    await expect(
+      service.create(
+        ADMIN,
+        { titulo: 'Riego', categoria: 'agua', subsector: 'hortalizas' },
+        {
+          buffer: Buffer.from('RIFF....WAVEfmt'),
+          mimetype: 'audio/wav',
+          size: 16,
+          originalname: 'guia.wav',
+        },
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('propagates compressor unavailability as 503', async () => {
+    const { service, audio } = setup();
+    audio.compress.mockRejectedValue(
+      new ServiceUnavailableException('Audio compression unavailable'),
+    );
+    await expect(
+      service.create(
+        ADMIN,
+        { titulo: 'Riego', categoria: 'agua', subsector: 'hortalizas' },
+        {
+          buffer: Buffer.from('RIFF....WAVEfmt'),
+          mimetype: 'audio/wav',
+          size: 16,
+          originalname: 'guia.wav',
+        },
+      ),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it('updates metadata and deletes object + row', async () => {

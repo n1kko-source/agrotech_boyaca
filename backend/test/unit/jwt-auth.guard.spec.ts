@@ -77,4 +77,28 @@ describe('JwtAuthGuard', () => {
       UnauthorizedException,
     );
   });
+
+  it('rejects HS256 tokens (algorithm confusion)', async () => {
+    const accessToken = await jwt.signAsync(
+      { sub: 'user-1', role: Role.NATURAL },
+      { secret: publicKey, algorithm: 'HS256', expiresIn: 60 },
+    );
+    const { ctx } = httpContext(`Bearer ${accessToken}`);
+    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+  });
+
+  it('rejects alg none tokens', async () => {
+    const header = Buffer.from(
+      JSON.stringify({ alg: 'none', typ: 'JWT' }),
+    ).toString('base64url');
+    const payload = Buffer.from(
+      JSON.stringify({ sub: 'user-1', role: Role.NATURAL }),
+    ).toString('base64url');
+    const { ctx } = httpContext(`Bearer ${header}.${payload}.`);
+    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+  });
 });

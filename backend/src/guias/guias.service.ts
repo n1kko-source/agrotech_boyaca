@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import {
   BadRequestException,
+  HttpException,
   Inject,
   Injectable,
   NotFoundException,
@@ -85,18 +86,28 @@ export class GuiasService implements OnModuleInit {
     }
     const kind = detectKind(file);
     assertSize(kind, file.size);
+    if (kind === 'pdf') {
+      assertPdfMagic(file.buffer);
+    }
 
     let body = file.buffer;
     let mimeType =
       kind === 'pdf' ? 'application/pdf' : file.mimetype || 'audio/mpeg';
     let extension =
-      kind === 'pdf' ? 'pdf' : extensionOf(file.originalname, 'bin');
+      kind === 'pdf' ? 'pdf' : safeObjectExtension(file.originalname);
 
     if (kind === 'audio') {
-      const compressed = await this.audio.compress(file.buffer);
-      body = compressed.buffer;
-      mimeType = compressed.mimeType;
-      extension = compressed.extension;
+      try {
+        const compressed = await this.audio.compress(file.buffer);
+        body = compressed.buffer;
+        mimeType = compressed.mimeType;
+        extension = safeObjectExtension(compressed.extension, 'ogg');
+      } catch (err) {
+        if (err instanceof HttpException) {
+          throw err;
+        }
+        throw new BadRequestException('Unsupported file type');
+      }
     }
 
     if (this.meter.wouldExceedStorage(body.length)) {
@@ -264,6 +275,15 @@ function detectKind(file: UploadedGuiaFile): GuiaKind {
   throw new BadRequestException('Unsupported file type');
 }
 
+function assertPdfMagic(buffer: Buffer): void {
+  if (
+    buffer.length < 4 ||
+    buffer.subarray(0, 4).toString('latin1') !== '%PDF'
+  ) {
+    throw new BadRequestException('Unsupported file type');
+  }
+}
+
 function assertSize(kind: GuiaKind, size: number): void {
   const max = kind === 'pdf' ? GUIAS_PDF_MAX_BYTES : GUIAS_AUDIO_MAX_BYTES;
   if (size > max) {
@@ -271,12 +291,20 @@ function assertSize(kind: GuiaKind, size: number): void {
   }
 }
 
+const OBJECT_EXT_RE = /^[a-z0-9]+$/;
+
+function safeObjectExtension(name: string, fallback = 'bin'): string {
+  const raw = extensionOf(name, fallback);
+  return OBJECT_EXT_RE.test(raw) ? raw : fallback;
+}
+
 function extensionOf(name: string, fallback: string): string {
-  const dot = name.lastIndexOf('.');
-  if (dot < 0 || dot === name.length - 1) {
+  const base = name.split(/[/\\]/).pop() ?? name;
+  const dot = base.lastIndexOf('.');
+  if (dot < 0 || dot === base.length - 1) {
     return fallback;
   }
-  return name.slice(dot + 1).toLowerCase();
+  return base.slice(dot + 1).toLowerCase();
 }
 
 export function isReadable(body: Buffer | Readable): body is Readable {

@@ -1,7 +1,7 @@
 # AgroTech Boyacá — Contexto arquitectónico
 
 > Guía base del proyecto. **El código en este repo manda.** Si un ticket Jira contradice lo implementado, se sigue el código y se actualiza este archivo en el mismo cambio.
-> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41), `AdminModule`, FTS de comunidad (AG-21), precios de commodities (AG-23), push FCM (AG-24), clima/alertas (AG-25), guías técnicas PDF/audio (AG-26), login Flutter ramificado (AG-19), mensajería 1:1 (AG-22), sync offline LWW (AG-27), persistencia SQLite del cliente (AG-28) y suscripción mensual de listado (AG-29).
+> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41), `AdminModule`, FTS de comunidad (AG-21), CRUD HTTP de posts (AG-20), precios de commodities (AG-23), push FCM (AG-24), clima/alertas (AG-25), guías técnicas PDF/audio (AG-26), login Flutter ramificado (AG-19), mensajería 1:1 (AG-22), sync offline LWW (AG-27), persistencia SQLite del cliente (AG-28), suscripción mensual de listado (AG-29) y hardening OWASP + auditoría de cifrado (AG-30).
 
 ## Host de ejecución (canónico)
 
@@ -81,9 +81,9 @@ Código en `mobile/`. ADMIN no aparece en la app rural.
 | NATURAL | Celular E.164 `+573XXXXXXXXX` → OTP 6 dígitos. Reenvío con countdown **60 s** (`OTP_COOLDOWN_SECONDS`). Consentimiento Ley 1581 en el verify |
 | JURIDICA | Registro `{ email, password, nit, entityType, acceptPrivacyPolicy }` y login `{ email, password }` |
 | Pendiente | Login `403 FORBIDDEN` o registro `201` → pantalla de espera (correo Firebase y/o `verified` de operador). Reenvío: `POST /auth/register/juridica/resend` |
-| Tokens | Access + refresh en `flutter_secure_storage` (EncryptedSharedPreferences / Keychain). No se persiste teléfono, correo, NIT ni contraseña |
+| Tokens | Access + refresh en `flutter_secure_storage` (EncryptedSharedPreferences / Keychain). No se persiste teléfono, correo, NIT ni contraseña. FLAG_SECURE en pantallas OTP/password (no recents) |
 | Refresh | Transparente: si el access vence en ≤ 30 s, o ante `401`, un solo `POST /auth/refresh` en vuelo (mutex; el backend usa `GETDEL`). Si falla → invitado |
-| API | `API_BASE_URL` (`--dart-define`). Default `https://agrotech-8p9b.onrender.com`. Timeout 20 s |
+| API | `API_BASE_URL` (`--dart-define`). Default `https://agrotech-8p9b.onrender.com`. Timeout 20 s. Release exige HTTPS; debug puede usar `http://10.0.2.2:3000`. Android: `allowBackup=false`, cleartext off en release |
 
 ### 3.2 Cliente Flutter — Sync offline (AG-28)
 
@@ -185,12 +185,15 @@ npm run auth:create-admin -- ops@example.com 'a-strong-password'
 
 ### 4.4.1 Comunidad — contrato HTTP
 
-Listados de marketplace. JWT de cualquier rol para buscar. Crear post o ficha pública: solo `NATURAL` / `JURIDICA` (`ADMIN` → `403`). Sin token → `401`. El perfil público **no** lleva teléfono, email ni NIT. Search de posts y perfiles **omite** autores `vencida` (AG-29); el DTO no expone gracia.
+Listados de marketplace. JWT de cualquier rol para buscar y para `GET /posts/:id`. Crear/editar/borrar post o ficha pública: solo `NATURAL` / `JURIDICA` (`ADMIN` → `403`). Sin token → `401`. El perfil público **no** lleva teléfono, email ni NIT. Search de posts y perfiles **omite** autores `vencida` (AG-29); el DTO no expone gracia. `GET /posts/:id` deja ver al dueño su anuncio aunque esté `vencida`; otro visor (incl. ADMIN) solo si el autor está listado (`activa` / `en_gracia`). Inexistente o no listable para el visor → `404` (nunca `403`: no se filtra existencia).
 
 | Método | Ruta | Quién | Resultado |
 |---|---|---|---|
 | `GET` | `/posts/search?q=&limit=` | JWT | Ítems ranqueados (`ts_rank_cd` + `similarity` / `word_similarity`). `q` 1–100 chars. `limit` default 20, max 50 |
+| `GET` | `/posts/:id` | JWT | `PostView` `{ id, authorId, title, description, category, createdAt }`. Dueño: siempre. Otro: solo si el autor está listado. Sin fila o no listable → 404. DTO sin `en_gracia` ni badge |
 | `POST` | `/posts` | NATURAL, JURIDICA | `{ title, description, category }` → 201 |
+| `PATCH` | `/posts/:id` | NATURAL, JURIDICA (autor) | Body = create `{ title, description, category }`. Extraño o inexistente → 404. `ADMIN` → 403 |
+| `DELETE` | `/posts/:id` | NATURAL, JURIDICA (autor) | 204. Extraño o inexistente → 404. `ADMIN` → 403. Postgres `ON DELETE CASCADE` limpia `conversations` / `messages` del post |
 | `GET` | `/profiles/search?q=&limit=` | JWT | Fichas públicas ranqueadas (nombre comercial, municipio, rubro, bio) |
 | `PUT` | `/profiles/me` | NATURAL, JURIDICA | Upsert de la ficha pública del `sub` |
 | `POST` | `/conversaciones` | NATURAL, JURIDICA | Body `{ postId }`. Abre un hilo 1:1 con el autor del post. Idempotente: mismo `postId`+iniciador → 200 con el mismo `id` (incluye carrera 2G: unique + relectura). Autor no puede abrir hilo consigo mismo → `400`. Post inexistente → `404`. `ADMIN` → `403` |
@@ -289,7 +292,7 @@ Orden: el cliente debe encolar padres antes que hijos (conversación antes que m
 
 ### 4.4.7 Suscripciones — contrato HTTP (AG-29)
 
-Gate de listado público (Modelo A). JWT. `ADMIN` no se lista ni se suscribe. El productor **escribe** posts/perfiles/sync sin pagar; `GET /posts/search` y `GET /profiles/search` solo incluyen autores `activa` o `en_gracia`. El DTO público **no** lleva `en_gracia` ni badge. Sin fila = `vencida`. Periodo **30 días UTC**. Gracia **4 días**. Status **derivado** de `currentPeriodEnd` (el job no oculta filas).
+Gate de listado público (Modelo A). JWT. `ADMIN` no se lista ni se suscribe. El productor **escribe** posts/perfiles/sync sin pagar; `GET /posts/search` y `GET /profiles/search` solo incluyen autores `activa` o `en_gracia`. `GET /posts/:id` aplica el mismo filtro a visores ajenos; el dueño sí lee su anuncio `vencida`. El DTO público **no** lleva `en_gracia` ni badge. Sin fila = `vencida`. Periodo **30 días UTC**. Gracia **4 días**. Status **derivado** de `currentPeriodEnd` (el job no oculta filas).
 
 `newEnd = max(now, currentPeriodEnd) + 30d`. Un pago resetea los flags de reminder.
 
@@ -366,10 +369,13 @@ Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, `fcmToke
 ## 6. Seguridad y cumplimiento
 
 - **Ley 1581 (Habeas Data):** consentimiento explícito (`acceptPrivacyPolicy`) en registro NATURAL y JURIDICA, con versión de política + timestamp. Teléfono, NIT y email cifrados en reposo (pgcrypto AES-256). Lookup por HMAC. Nunca en logs ni en respuestas de `/admin/juridica/pending` (NIT enmascarado) ni de `/admin/privacy/deletion-requests`. Dumps de Postgres en R2 (`backups/`) son PII; bucket privado. El titular pide supresión con `POST /auth/privacy/deletion-request`.
-- **JWT:** RS256. TTL por rol (§ 4.3). Un refresh vivo por usuario; rotación con `GETDEL`; logout borra refresh e índice de sesión (`deviceId` opcional, best-effort). Refresh de JURIDICA relee `verified`.
+- **Auditoría de cifrado (AG-30):** no hay columnas plaintext de teléfono/email/NIT. `PII_ENCRYPTION_KEY` y `PII_HASH_PEPPER` ≥ 32 caracteres; production rechaza el literal `dev-pepper` y aborta el boot si faltan. JWT RS256 con módulo RSA ≥ 2048 (fail-fast en production). OTP/InMemory solo usan fallback `dev-pepper` fuera de production.
+- **JWT:** RS256 (`algorithms: ['RS256']` en verify). TTL por rol (§ 4.3). Un refresh vivo por usuario; rotación con `GETDEL`; logout borra refresh e índice de sesión (`deviceId` opcional, best-effort). Refresh de JURIDICA relee `verified`. Bearer solo en `Authorization`, nunca en query.
 - **Privilegios:** no existe `POST /auth/register/admin`. Un API key compartido no identifica operador; el audit usa `sub` del JWT ADMIN.
-- **Rate limiting:** Throttle por IP vía Redis (Upstash); OTP y registro JURIDICA tienen límites más estrictos en el controller. El cupo diario de 10.000 comandos se ve en `GET /health` → `redis.ops` (UTC).
-- **OWASP:** Helmet, ValidationPipe global (`whitelist` + `forbidNonWhitelisted`), sanitización de inputs.
+- **Rate limiting:** Throttle por IP vía Redis (Upstash); OTP y registro JURIDICA tienen límites más estrictos en el controller. Production sin Redis: KV fail-closed. Throttle in-memory si no hay Redis (una instancia Render Free). El cupo diario de 10.000 comandos se ve en `GET /health` → `redis.ops` (UTC).
+- **OWASP (AG-30):** Helmet explícito (CSP off — API JSON, no HTML; HSTS 180d). ValidationPipe global (`whitelist` + `forbidNonWhitelisted`) — eso es el filtrado de inputs, **no** un sanitizer HTML (no hay WebView ni panel admin). Body JSON **256 kb**. Upload de guías: magic `%PDF` + extensión `[a-z0-9]+`; audio inválido si ffmpeg falla → 400.
+- **Android (AG-30):** `allowBackup=false` + reglas de extracción vacías; cleartext denegado en release (`networkSecurityConfig`); HTTPS obligatorio en `kReleaseMode`. FLAG_SECURE en OTP/login/registro. Sin certificate pinning ni detección de root (fuera de alcance).
+- **Fuera de alcance:** CSRF (API Bearer, sin cookies de sesión), CORS (`enableCors` no se usa; WS `/clima` `origin: false`), pinning, SQLCipher, Sentry (AG-44), cupos SMS (AG-43).
 - Render inyecta `PORT`. No definirlo en el dashboard.
 
 ---

@@ -2,7 +2,11 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import {
   AUDIO_OPUS_BITRATE,
   AUDIO_OPUS_EXT,
@@ -59,7 +63,7 @@ export class FfmpegAudioCompressor implements AudioCompressor {
       ]);
       const buffer = await readFile(dest);
       if (buffer.length === 0) {
-        throw new ServiceUnavailableException('Audio compression failed');
+        throw new BadRequestException('Unsupported file type');
       }
       return {
         buffer,
@@ -67,8 +71,11 @@ export class FfmpegAudioCompressor implements AudioCompressor {
         extension: AUDIO_OPUS_EXT,
       };
     } catch (err) {
-      if (err instanceof ServiceUnavailableException) {
+      if (err instanceof HttpException) {
         throw err;
+      }
+      if (err instanceof Error && err.message.startsWith('ffmpeg exit')) {
+        throw new BadRequestException('Unsupported file type');
       }
       throw new ServiceUnavailableException('Audio compression unavailable');
     } finally {

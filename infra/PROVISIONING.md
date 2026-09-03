@@ -135,7 +135,7 @@ Plantilla de variables: [`backend/.env.example`](../backend/.env.example).
 6. Variables: pegar desde `.env.example` con valores reales (DATABASE, Redis, R2, Firebase, JWT, PII).
    - **No** definas `PORT` (Render lo inyecta).
    - **No** definas `GOOGLE_APPLICATION_CREDENTIALS`.
-   - AG-15: `JWT_PRIVATE_KEY`, `FIREBASE_WEB_API_KEY`, `PII_ENCRYPTION_KEY`, `PII_HASH_PEPPER` (además de `JWT_PUBLIC_KEY`).
+   - AG-15: `JWT_PRIVATE_KEY`, `FIREBASE_WEB_API_KEY`, `PII_ENCRYPTION_KEY`, `PII_HASH_PEPPER` (además de `JWT_PUBLIC_KEY`). AG-30: PII keys ≥32 chars (`openssl rand -base64 32`); JWT RSA ≥2048; production rechaza `dev-pepper`.
    - AG-25: `OPENWEATHER_API_KEY`, `CLIMA_JOB_SECRET`.
    - AG-29: `SUSCRIPCIONES_JOB_SECRET`.
    - Migraciones Prisma corren al arrancar el contenedor (`DIRECT_URL` session `:5432`).

@@ -188,4 +188,18 @@ describe('Guias (e2e)', () => {
       .set('Authorization', `Bearer ${naturalToken}`)
       .expect(404);
   });
+
+  it('rejects a PDF upload whose bytes are not a PDF', async () => {
+    await request(app.getHttpServer())
+      .post('/guias')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .attach('archivo', Buffer.from('not-a-pdf'), {
+        filename: 'papa.pdf',
+        contentType: 'application/pdf',
+      })
+      .field('titulo', 'Falso PDF')
+      .field('categoria', 'Papa')
+      .field('subsector', 'Tuberculos')
+      .expect(400);
+  });
 });

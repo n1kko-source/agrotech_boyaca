@@ -97,4 +97,18 @@ describe('GlobalExceptionFilter', () => {
       error: { code: ErrorCode.INTERNAL, message: 'Internal server error' },
     });
   });
+
+  it('maps Express entity.too.large to 413 VALIDATION_ERROR', () => {
+    const json = jest.fn();
+    const status = jest.fn();
+    const err = Object.assign(new Error('request entity too large'), {
+      status: 413,
+      type: 'entity.too.large',
+    });
+    filter.catch(err, hostWith(json, status));
+    expect(status).toHaveBeenCalledWith(HttpStatus.PAYLOAD_TOO_LARGE);
+    expect(json).toHaveBeenCalledWith({
+      error: { code: ErrorCode.VALIDATION_ERROR, message: 'Payload too large' },
+    });
+  });
 });

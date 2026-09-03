@@ -19,6 +19,7 @@ import { RedisThrottlerStorage } from './redis/redis-throttler.storage';
 import { REDIS_CLIENT } from './redis/redis.constants';
 import { RedisModule } from './redis/redis.module';
 import { RedisOpsCounter } from './redis/redis-ops.counter';
+import { CryptoBootstrap } from './config/crypto-bootstrap';
 
 @Global()
 @Module({
@@ -53,6 +54,7 @@ import { RedisOpsCounter } from './redis/redis-ops.counter';
     }),
   ],
   providers: [
+    CryptoBootstrap,
     JwtAuthGuard,
     RolesGuard,
     { provide: APP_GUARD, useClass: ThrottlerGuard },

@@ -16,6 +16,7 @@ import 'sync/sync_engine.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  ApiConfig.assertReleaseUsesHttps();
   final store = SecureTokenStore();
   final client = SessionClient(store: store, baseUrl: ApiConfig.baseUrl);
   final auth = AuthController(store: store, api: AuthApi(client));

@@ -4,12 +4,16 @@ import 'package:agrotech_boyaca/auth/auth_scope.dart';
 import 'package:agrotech_boyaca/auth/models.dart';
 import 'package:agrotech_boyaca/auth/token_store.dart';
 import 'package:agrotech_boyaca/auth/ui/natural_otp_screen.dart';
+import 'package:agrotech_boyaca/auth/ui/secure_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'helpers/fake_auth.dart';
 
 void main() {
+  setUp(SecureScreen.resetHolders);
+  tearDown(SecureScreen.resetHolders);
+
   testWidgets('role select branches NATURAL vs JURIDICA', (tester) async {
     final env = await _env();
     await tester.pumpWidget(AgroTechApp(auth: env.auth));
@@ -46,7 +50,9 @@ void main() {
 
     expect(find.byKey(const Key('otp_field')), findsOneWidget);
     expect(
-      tester.widget<OutlinedButton>(find.byKey(const Key('resend_otp'))).onPressed,
+      tester
+          .widget<OutlinedButton>(find.byKey(const Key('resend_otp')))
+          .onPressed,
       isNull,
     );
 
@@ -68,19 +74,21 @@ void main() {
     await tester.pumpWidget(
       AuthScope(
         controller: env.auth,
-        child: const MaterialApp(
-          home: NaturalOtpScreen(cooldownSeconds: 1),
-        ),
+        child: const MaterialApp(home: NaturalOtpScreen(cooldownSeconds: 1)),
       ),
     );
     await tester.pump();
     expect(
-      tester.widget<OutlinedButton>(find.byKey(const Key('resend_otp'))).onPressed,
+      tester
+          .widget<OutlinedButton>(find.byKey(const Key('resend_otp')))
+          .onPressed,
       isNull,
     );
     await tester.pump(const Duration(seconds: 2));
     expect(
-      tester.widget<OutlinedButton>(find.byKey(const Key('resend_otp'))).onPressed,
+      tester
+          .widget<OutlinedButton>(find.byKey(const Key('resend_otp')))
+          .onPressed,
       isNotNull,
     );
   });
