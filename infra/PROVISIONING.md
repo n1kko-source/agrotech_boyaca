@@ -116,6 +116,11 @@ Plantilla de variables: [`backend/.env.example`](../backend/.env.example).
 2. `OPENWEATHER_API_KEY` en Render / `.env`. Sin ella, `GET /clima/:municipio` responde `503`.
 3. `CLIMA_JOB_SECRET` (valor aleatorio largo). Cron: [`cron-health.md`](./cron-health.md).
 
+### Suscripciones (AG-29)
+
+1. `SUSCRIPCIONES_JOB_SECRET` (valor aleatorio largo). Cron diario: [`cron-health.md`](./cron-health.md).
+2. Pagos se registran a mano (`POST /admin/suscripciones/:userId/pagos`). Demo: `npm run suscripciones:grant -- <userId>` desde `backend/`.
+
 ---
 
 ## 5. Render (NestJS)
@@ -132,6 +137,7 @@ Plantilla de variables: [`backend/.env.example`](../backend/.env.example).
    - **No** definas `GOOGLE_APPLICATION_CREDENTIALS`.
    - AG-15: `JWT_PRIVATE_KEY`, `FIREBASE_WEB_API_KEY`, `PII_ENCRYPTION_KEY`, `PII_HASH_PEPPER` (además de `JWT_PUBLIC_KEY`).
    - AG-25: `OPENWEATHER_API_KEY`, `CLIMA_JOB_SECRET`.
+   - AG-29: `SUSCRIPCIONES_JOB_SECRET`.
    - Migraciones Prisma corren al arrancar el contenedor (`DIRECT_URL` session `:5432`).
 7. Dominio público → `APP_PUBLIC_URL` (local y referencia del cron), p. ej. `https://agrotech-8p9b.onrender.com`.
 

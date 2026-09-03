@@ -52,6 +52,8 @@ services:
         sync: false
       - key: CLIMA_JOB_SECRET
         sync: false
+      - key: SUSCRIPCIONES_JOB_SECRET
+        sync: false
       - key: THROTTLE_TTL
         value: "60000"
       - key: THROTTLE_LIMIT

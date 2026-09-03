@@ -1,4 +1,5 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { CLOCK, systemClock, type Clock } from '../suscripciones/clock';
 import { POSTS_STORE } from './posts.store';
 import type { PostsStore, RankedPost, PostRecord } from './posts.store';
 
@@ -19,7 +20,14 @@ export type SearchPostsResult = {
 
 @Injectable()
 export class PostsService {
-  constructor(@Inject(POSTS_STORE) private readonly posts: PostsStore) {}
+  constructor(
+    @Inject(POSTS_STORE) private readonly posts: PostsStore,
+    @Optional() @Inject(CLOCK) clock?: Clock,
+  ) {
+    this.clock = clock ?? systemClock;
+  }
+
+  private readonly clock: Clock;
 
   async create(
     authorId: string,
@@ -60,7 +68,7 @@ export class PostsService {
   }
 
   async search(q: string, limit: number): Promise<SearchPostsResult> {
-    const rows = await this.posts.search(q, limit);
+    const rows = await this.posts.search(q, limit, this.clock());
     return { items: rows.map(toRankedPostView) };
   }
 }

@@ -1,6 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  SUBSCRIPTIONS_STORE,
+  type SubscriptionsStore,
+} from '../suscripciones/subscriptions.store';
+import { SuscripcionesModule } from '../suscripciones/suscripciones.module';
 import { ConversationsController } from './conversations.controller';
 import { ConversationsService } from './conversations.service';
 import {
@@ -20,6 +25,7 @@ import {
 } from './profiles.store';
 
 @Module({
+  imports: [SuscripcionesModule],
   controllers: [PostsController, ProfilesController, ConversationsController],
   providers: [
     PostsService,
@@ -27,22 +33,30 @@ import {
     ConversationsService,
     {
       provide: POSTS_STORE,
-      inject: [PrismaService, ConfigService],
-      useFactory: (prisma: PrismaService, config: ConfigService) => {
+      inject: [PrismaService, ConfigService, SUBSCRIPTIONS_STORE],
+      useFactory: (
+        prisma: PrismaService,
+        config: ConfigService,
+        subscriptions: SubscriptionsStore,
+      ) => {
         if (prisma.enabled || config.get<string>('NODE_ENV') === 'production') {
           return new PrismaPostsStore(prisma);
         }
-        return new MemoryPostsStore();
+        return new MemoryPostsStore(subscriptions);
       },
     },
     {
       provide: PROFILES_STORE,
-      inject: [PrismaService, ConfigService],
-      useFactory: (prisma: PrismaService, config: ConfigService) => {
+      inject: [PrismaService, ConfigService, SUBSCRIPTIONS_STORE],
+      useFactory: (
+        prisma: PrismaService,
+        config: ConfigService,
+        subscriptions: SubscriptionsStore,
+      ) => {
         if (prisma.enabled || config.get<string>('NODE_ENV') === 'production') {
           return new PrismaProfilesStore(prisma);
         }
-        return new MemoryProfilesStore();
+        return new MemoryProfilesStore(subscriptions);
       },
     },
     {

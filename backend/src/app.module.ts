@@ -10,6 +10,7 @@ import { GuiasModule } from './guias/guias.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SharedModule } from './shared/shared.module';
+import { SuscripcionesModule } from './suscripciones/suscripciones.module';
 import { SyncModule } from './sync/sync.module';
 
 @Module({
@@ -24,6 +25,7 @@ import { SyncModule } from './sync/sync.module';
     ClimaModule,
     GuiasModule,
     SyncModule,
+    SuscripcionesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

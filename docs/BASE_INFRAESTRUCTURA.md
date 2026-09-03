@@ -1,7 +1,7 @@
 # AgroTech Boyacá — Contexto arquitectónico
 
 > Guía base del proyecto. **El código en este repo manda.** Si un ticket Jira contradice lo implementado, se sigue el código y se actualiza este archivo en el mismo cambio.
-> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41), `AdminModule`, FTS de comunidad (AG-21), precios de commodities (AG-23), push FCM (AG-24), clima/alertas (AG-25), guías técnicas PDF/audio (AG-26), login Flutter ramificado (AG-19), mensajería 1:1 (AG-22) y sync offline LWW (AG-27).
+> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41), `AdminModule`, FTS de comunidad (AG-21), precios de commodities (AG-23), push FCM (AG-24), clima/alertas (AG-25), guías técnicas PDF/audio (AG-26), login Flutter ramificado (AG-19), mensajería 1:1 (AG-22), sync offline LWW (AG-27), persistencia SQLite del cliente (AG-28) y suscripción mensual de listado (AG-29).
 
 ## Host de ejecución (canónico)
 
@@ -65,8 +65,8 @@ ADMIN no es usuario de la app rural: opera contra la API (Postman / curl / futur
 **Decisión: Flutter (Android primero)**
 
 - Desarrollo directo como app nativa Android con Flutter
-- Offline-first con SQLite local (`sqflite`) — persistencia de producto aún no; tokens de sesión sí (AG-19)
-- Sincronización con backend al recuperar señal vía `POST /sync` (AG-27: batch + LWW). Persistencia SQLite de producto aún no (AG-28)
+- Offline-first con SQLite local (`sqflite`) — posts, precios cacheados, mensajes, perfil y cola `pending_ops` (AG-28). Tokens de sesión en `flutter_secure_storage` (AG-19)
+- Sincronización con backend al recuperar señal vía `POST /sync` (AG-27: batch + LWW). El cliente encola, dispara el POST y aplica el delta (AG-28)
 - Push notifications nativas vía FCM (`NotificationsModule`; módulo de noticias no implementado)
 - **Fase 2:** mismo codebase Flutter compila para iOS sin reescritura
 - PWA descartada: Service Workers poco confiables en 2G/3G rural
@@ -85,6 +85,21 @@ Código en `mobile/`. ADMIN no aparece en la app rural.
 | Refresh | Transparente: si el access vence en ≤ 30 s, o ante `401`, un solo `POST /auth/refresh` en vuelo (mutex; el backend usa `GETDEL`). Si falla → invitado |
 | API | `API_BASE_URL` (`--dart-define`). Default `https://agrotech-8p9b.onrender.com`. Timeout 20 s |
 
+### 3.2 Cliente Flutter — Sync offline (AG-28)
+
+Código en `mobile/lib/sync/`. Solo corre con sesión NATURAL / JURIDICA (la app rural no tiene ADMIN).
+
+| Pieza | Contrato |
+|---|---|
+| SQLite | Archivo `agrotech.db` (`sqflite`). Esquema espejo: `posts`, `marketplace_profiles`, `conversations`, `messages`, `commodity_prices`, `weather_alerts` + cola `pending_ops` + `sync_meta` (`since` por `userId`) |
+| Cola | Cada escritura offline: `opId` UUID v4, `entityId` UUID v4, `clientTs` reloj local ISO-8601. Escritura optimista y fila de cola en la misma transacción. Padres antes que hijos (`conversation` antes que `message`) |
+| Batch | Máx. **50** ops por `POST /sync`. `since` = último `serverTime` de ese usuario. Sin cola y sin `since` no hay POST (no se vuelca el mundo en 2G) |
+| Señal | `connectivity_plus`: radio `none` → no POST y se cancela el timer. Al pasar a con enlace, al escribir con red, o al volver a primer plano → `POST /sync`. Un solo flush en vuelo. Si el POST falla (timeout / 5xx / 429) y el radio sigue arriba, reintento 5s → 15s → 45s (tope 45s). 400/403 no vacían la cola ni martillan: un reintento al tope de 45s o al resume. Éxito o escritura nueva reinician la serie |
+| Delta | Upsert local de `posts`, ficha, hilos, mensajes y alertas. `applied`/`conflict`/`rejected` salen de la cola. `conflict` aplica `record`. `rejected` sin `record` revierte el optimista. Los precios globales no vienen en el delta: se cachean al encolar un `precio` o al guardar un `GET /commodities/precios` |
+| UI | Banner en home: **Sin conexión** (sin radio) / **Sincronizando…** (flush, backoff o cola > 0) / **Sincronizado** (radio y cola vacía) |
+
+Auth (OTP / login) sigue exigiendo red. No se persisten teléfono, correo, NIT ni contraseña en SQLite.
+
 ---
 
 ## 4. Backend
@@ -93,7 +108,7 @@ Código en `mobile/`. ADMIN no aparece en la app rural.
 
 **Justificación monolito:** evita latencia inter-servicio bajo 2G/3G, reduce complejidad operativa en fase MVP, extractable a microservicios cuando la carga lo justifique.
 
-Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `NotificationsModule`, `AuthModule`, `AdminModule`, `ComunidadModule`, `CommoditiesModule`, `ClimaModule`, `GuiasModule`, `SyncModule`.
+Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `NotificationsModule`, `AuthModule`, `AdminModule`, `ComunidadModule`, `CommoditiesModule`, `ClimaModule`, `GuiasModule`, `SyncModule`, `SuscripcionesModule`.
 
 ### 4.1 Módulos — implementados
 
@@ -102,13 +117,14 @@ Entry: `AppModule` importa `SharedModule`, `PrismaModule`, `NotificationsModule`
 | SharedModule | Kernel: JWT RS256, `JwtAuthGuard` + `RolesGuard` globales, throttle Redis, Pino (redact PII), Helmet, ValidationPipe, cursor pagination, `GlobalExceptionFilter` |
 | PrismaModule | Postgres (Supabase). `DATABASE_URL` pooler `:6543`; `DIRECT_URL` session `:5432` para migraciones/backups |
 | AuthModule | OTP NATURAL · registro/login JURIDICA · login ADMIN · issue/revoke refresh (una sesión por usuario) · `GET /auth/me` |
-| AdminModule | Operador: listar JURIDICA pendientes · `PATCH` verify · auditoría UUID · email de aviso |
-| ComunidadModule | Posts de marketplace · perfiles públicos · FTS PostgreSQL · mensajería 1:1 (`/conversaciones`) con historial persistente y push FCM. Matching aún no |
+| AdminModule | Operador: listar JURIDICA pendientes · `PATCH` verify · auditoría UUID · email de aviso · registro de pago de suscripción (AG-29) |
+| ComunidadModule | Posts de marketplace · perfiles públicos · FTS PostgreSQL · mensajería 1:1 (`/conversaciones`) con historial persistente y push FCM. Matching aún no. Listado público filtra por suscripción activa/en_gracia |
 | CommoditiesModule | Precio vigente COP por producto+región · cache Redis TTL 60 s · invalidación al upsert. Solo JURIDICA verificada escribe |
-| NotificationsModule | FCM HTTP v1 · registro de token por dispositivo · `NotificationService.send(userId, payload)` (global, lo inyectan Comunidad/Commodities/Clima) · inbox Postgres si el dispositivo está offline · limpieza de tokens inválidos |
+| NotificationsModule | FCM HTTP v1 · registro de token por dispositivo · `NotificationService.send(userId, payload)` (global, lo inyectan Comunidad/Commodities/Clima/Suscripciones) · inbox Postgres si el dispositivo está offline · limpieza de tokens inválidos |
 | ClimaModule | OpenWeather (current + forecast 5d/3h) por municipio · cache Redis TTL 3 h · alertas `rain`/`frost` · job HTTP → `NotificationService` · WebSocket `/clima` complementario (no sustituye al push) |
 | GuiasModule | Metadata PDF/audio · upload ADMIN a R2 (`guias/`) · listado cursor · stream con Range · audio Opus 16 kbps · meter en `/health` |
 | SyncModule | `POST /sync` · batch offline (máx. 50 ops) · LWW con ventana de skew 5 min · delta user-scoped |
+| SuscripcionesModule | Gate de listado (AG-29): `currentPeriodEnd` derivado a `activa`/`en_gracia`/`vencida` · pago admin fuera de plataforma · job HTTP diario + push |
 
 ### 4.2 Módulos — previstos (aún no hay código)
 
@@ -169,7 +185,7 @@ npm run auth:create-admin -- ops@example.com 'a-strong-password'
 
 ### 4.4.1 Comunidad — contrato HTTP
 
-Listados de marketplace. JWT de cualquier rol para buscar. Crear post o ficha pública: solo `NATURAL` / `JURIDICA` (`ADMIN` → `403`). Sin token → `401`. El perfil público **no** lleva teléfono, email ni NIT.
+Listados de marketplace. JWT de cualquier rol para buscar. Crear post o ficha pública: solo `NATURAL` / `JURIDICA` (`ADMIN` → `403`). Sin token → `401`. El perfil público **no** lleva teléfono, email ni NIT. Search de posts y perfiles **omite** autores `vencida` (AG-29); el DTO no expone gracia.
 
 | Método | Ruta | Quién | Resultado |
 |---|---|---|---|
@@ -271,6 +287,22 @@ Cada op lleva `opId` (UUID v4, idempotencia de retry 2G) y `entityId` (UUID v4 g
 
 Orden: el cliente debe encolar padres antes que hijos (conversación antes que mensaje). El server procesa `ops` en orden.
 
+### 4.4.7 Suscripciones — contrato HTTP (AG-29)
+
+Gate de listado público (Modelo A). JWT. `ADMIN` no se lista ni se suscribe. El productor **escribe** posts/perfiles/sync sin pagar; `GET /posts/search` y `GET /profiles/search` solo incluyen autores `activa` o `en_gracia`. El DTO público **no** lleva `en_gracia` ni badge. Sin fila = `vencida`. Periodo **30 días UTC**. Gracia **4 días**. Status **derivado** de `currentPeriodEnd` (el job no oculta filas).
+
+`newEnd = max(now, currentPeriodEnd) + 30d`. Un pago resetea los flags de reminder.
+
+| Método | Ruta | Quién | Resultado |
+|---|---|---|---|
+| `GET` | `/suscripciones/me` | NATURAL, JURIDICA | `{ status, currentPeriodEnd, graceEndsAt }`. Sin fila: `vencida` y fechas `null`. `ADMIN` → `403` |
+| `POST` | `/admin/suscripciones/:userId/pagos` | ADMIN | Body `{ channel: "nequi" \| "daviplata" \| "transferencia", reference? }`. Target NATURAL/JURIDICA. 200 con la vista de suscripción. Misma `reference` → `409`. ADMIN target → `400`. Sin usuario → `404` |
+| `POST` | `/suscripciones/jobs/evaluate` | header `x-suscripciones-job-secret` | Público (cron diario). Push idempotente por periodo: (a) 3 días antes, (b) entra gracia, (c) se oculta. `{ evaluated, fired }`. Secret inválido → `401` |
+
+Ops/demo (no es HTTP): `npm run suscripciones:grant -- <userId>` extiende 30 días sin fila de pago.
+
+Tablas `subscriptions` y `subscription_payments`: UUID + canal + `reference` opaca. Sin PII. `ON DELETE CASCADE` con `users`.
+
 ### 4.5 Datos (Ley 1581)
 
 Tabla `users`: plaintext de teléfono / email / NIT **nunca** se guarda. Ciphertext `pgcrypto` AES-256 (`pgp_sym_encrypt`); lookup HMAC-SHA256 con `PII_HASH_PEPPER`. Constraints: NATURAL exige teléfono; JURIDICA exige email+NIT+`entity_type`; ADMIN exige email y no lleva NIT ni `entity_type`.
@@ -294,6 +326,8 @@ Tabla `weather_alerts`: umbral `rain`/`frost` por usuario+municipio. Sin PII. `l
 Tabla `guias`: título, categoría, subsector, `kind` (`pdf`/`audio`), MIME, `size_bytes`, `object_key` (`guias/{uuid}.pdf|ogg`). Sin PII. Tabla `r2_monthly_reads`: lecturas Class B por mes UTC.
 
 Tablas `sync_ops` y `sync_clocks`: log idempotente de ops offline (`op_id` cliente) y reloj LWW por entidad. UUID + JSON de resultado. Sin PII de cuenta. `ON DELETE CASCADE` con `users`. El texto de `messages` en `record` no es PII de Ley 1581; igual se redacta `req.body.ops[*].payload.body`.
+
+Tablas `subscriptions` y `subscription_payments`: listado gated (AG-29). `current_period_end` es la fuente de verdad; status no se persiste. Pagos admin: UUID + canal + reference. Sin teléfono/email/NIT. `ON DELETE CASCADE` con `users`. Logs redactan `reference` y `SUSCRIPCIONES_JOB_SECRET`.
 
 Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, `fcmToken`, `OPENWEATHER_API_KEY`, `CLIMA_JOB_SECRET`, `R2_SECRET_ACCESS_KEY`, claves.
 
@@ -322,6 +356,7 @@ Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, `fcmToke
 | Clima | OpenWeather Current + 5 day / 3 hour | Free; cache Redis 3 h. `OPENWEATHER_API_KEY` |
 | Anti-sleep | Cron-job.org → `GET /health` cada 10 min | — |
 | Job alertas clima | Cron-job.org → `POST /clima/jobs/evaluate` cada 3 h | header `x-clima-job-secret` |
+| Job suscripciones | Cron-job.org → `POST /suscripciones/jobs/evaluate` diario | header `x-suscripciones-job-secret` |
 | Backups PG | GitHub Actions → R2 `backups/postgres/` | retención 7 días; Free no tiene PITR |
 
 **Punto de migración:** al superar ~500 usuarios activos concurrentes → Render pago (sin spin-down) + Supabase Pro + Upstash Pro. El código NestJS no cambia.
@@ -341,12 +376,13 @@ Logs: Pino redacta `email`, `password`, `nit`, `phone`, `code`, tokens, `fcmToke
 
 ## 7. Estrategia offline-first
 
-Backend `POST /sync` (AG-27) está implementado. El cliente Flutter aún no persiste la cola en SQLite (AG-28).
+Backend `POST /sync` (AG-27) y cliente Flutter SQLite + cola (AG-28) están implementados.
 
 ```
 Usuario sin señal → Opera con SQLite local
                   → Cola de operaciones con timestamp local (clientTs) y UUID (opId, entityId)
 Al recuperar señal → POST /sync con batch de operaciones (máx. 50)
+                   → Si el POST falla y el radio sigue arriba, reintento 5s / 15s / 45s (no se finge “sin radio”)
                    → Backend aplica Last-Write-Wins (skew 5 min; cola de horas sí entra)
                    → Responde con results por op + delta user-scoped desde `since`
                    → Cliente guarda `serverTime` como próximo `since` y saca de la cola los applied
@@ -372,6 +408,9 @@ Plataforma no intermedia el dinero → Sin riesgo regulatorio financiero
 ### Revenue model MVP
 
 - Suscripción mensual del productor (NATURAL y JURIDICA) por estar listado
+- Estados derivados: `activa` (hasta `currentPeriodEnd`) · `en_gracia` (4 días más, visible, sin badge al comprador) · `vencida` (sale del search)
+- Pago fuera de plataforma; ADMIN lo registra en `POST /admin/suscripciones/:userId/pagos`
+- Job HTTP diario dispara push (3 días antes / entra gracia / se oculta). No usa `@Cron` (Render Free hiberna)
 - La plataforma no cobra comisión por transacción en Fase 1
 - ADMIN no es un rol de marketplace (no paga ni se lista)
 

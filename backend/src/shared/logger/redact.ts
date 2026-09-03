@@ -19,6 +19,7 @@ const SENSITIVE_KEYS = new Set([
   'jwt_private_key',
   'openweather_api_key',
   'clima_job_secret',
+  'suscripciones_job_secret',
   'r2_secret_access_key',
   'r2_access_key_id',
   'fcmtoken',
@@ -27,6 +28,7 @@ const SENSITIVE_KEYS = new Set([
   'accesstoken',
   'otpcode',
   'cookie',
+  'reference',
 ]);
 
 export function isSensitiveKey(key: string): boolean {
@@ -79,10 +81,13 @@ export const PINO_REDACT_PATHS = [
   'req.body.fcmToken',
   'req.body.body',
   'req.body.ops[*].payload.body',
+  'req.body.reference',
   '*.fcmToken',
   '*.OPENWEATHER_API_KEY',
   '*.CLIMA_JOB_SECRET',
+  '*.SUSCRIPCIONES_JOB_SECRET',
   '*.R2_SECRET_ACCESS_KEY',
   '*.R2_ACCESS_KEY_ID',
   'req.headers.x-clima-job-secret',
+  'req.headers.x-suscripciones-job-secret',
 ];

@@ -6,30 +6,54 @@ import 'auth/models.dart';
 import 'auth/ui/home_screen.dart';
 import 'auth/ui/juridica_pending_screen.dart';
 import 'auth/ui/role_select_screen.dart';
+import 'sync/sync_controller.dart';
+import 'sync/sync_scope.dart';
 import 'theme/app_theme.dart';
 
 class AgroTechApp extends StatefulWidget {
-  const AgroTechApp({super.key, required this.auth});
+  const AgroTechApp({super.key, required this.auth, this.sync});
 
   final AuthController auth;
+  final SyncController? sync;
 
   @override
   State<AgroTechApp> createState() => _AgroTechAppState();
 }
 
-class _AgroTechAppState extends State<AgroTechApp> {
+class _AgroTechAppState extends State<AgroTechApp> with WidgetsBindingObserver {
   final GlobalKey<NavigatorState> _guestNavKey = GlobalKey<NavigatorState>();
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      widget.sync?.onAppResumed();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return AuthScope(
-      controller: widget.auth,
-      child: MaterialApp(
-        title: 'AgroTech Boyacá',
-        theme: AppTheme.light,
-        home: AuthGate(guestNavKey: _guestNavKey),
-      ),
+    Widget app = MaterialApp(
+      title: 'AgroTech Boyacá',
+      theme: AppTheme.light,
+      home: AuthGate(guestNavKey: _guestNavKey),
     );
+    final sync = widget.sync;
+    if (sync != null) {
+      app = SyncScope(controller: sync, child: app);
+    }
+    return AuthScope(controller: widget.auth, child: app);
   }
 }
 

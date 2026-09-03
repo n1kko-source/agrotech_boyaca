@@ -1,4 +1,5 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { CLOCK, systemClock, type Clock } from '../suscripciones/clock';
 import { PROFILES_STORE } from './profiles.store';
 import type {
   ProfileRecord,
@@ -26,7 +27,12 @@ export type SearchProfilesResult = {
 export class ProfilesService {
   constructor(
     @Inject(PROFILES_STORE) private readonly profiles: ProfilesStore,
-  ) {}
+    @Optional() @Inject(CLOCK) clock?: Clock,
+  ) {
+    this.clock = clock ?? systemClock;
+  }
+
+  private readonly clock: Clock;
 
   findByUserId(userId: string): Promise<ProfileRecord | null> {
     return this.profiles.findByUserId(userId);
@@ -54,7 +60,7 @@ export class ProfilesService {
   }
 
   async search(q: string, limit: number): Promise<SearchProfilesResult> {
-    const rows = await this.profiles.search(q, limit);
+    const rows = await this.profiles.search(q, limit, this.clock());
     return { items: rows.map(toRankedProfileView) };
   }
 }

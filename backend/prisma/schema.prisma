@@ -51,6 +51,8 @@ model User {
   messagesSent            Message[]
   syncOps                 SyncOp[]
   syncClocks              SyncClock[]
+  subscription            Subscription?
+  subscriptionPayments    SubscriptionPayment[]
 
   @@map("users")
 }
@@ -284,4 +286,38 @@ model SyncClock {
   @@id([entity, entityKey])
   @@index([userId])
   @@map("sync_clocks")
+}
+
+/// Marketplace listing gate (AG-29). Status is derived from currentPeriodEnd
+/// (activa / en_gracia / vencida); the daily job only sends reminders.
+/// No PII. One row per producer (NATURAL / JURIDICA).
+model Subscription {
+  userId            String    @id @map("user_id") @db.Uuid
+  currentPeriodEnd  DateTime  @map("current_period_end")
+  remindedExpiryAt  DateTime? @map("reminded_expiry_at")
+  remindedGraceAt   DateTime? @map("reminded_grace_at")
+  remindedHiddenAt  DateTime? @map("reminded_hidden_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+/// Manual off-platform payment recorded by ADMIN (Nequi / Daviplata / transfer).
+/// UUIDs + channel + opaque reference. No phone, email, or NIT.
+model SubscriptionPayment {
+  id             String   @id @db.Uuid
+  actorId        String   @map("actor_id") @db.Uuid
+  targetUserId   String   @map("target_user_id") @db.Uuid
+  channel        String
+  reference      String?
+  periodEndAfter DateTime @map("period_end_after")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  target User @relation(fields: [targetUserId], references: [id], onDelete: Cascade)
+
+  @@unique([targetUserId, channel, reference])
+  @@index([targetUserId])
+  @@map("subscription_payments")
 }
