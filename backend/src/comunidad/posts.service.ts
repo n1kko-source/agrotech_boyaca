@@ -1,4 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
+import { decodeCursor, paginate } from '../shared/pagination/cursor';
+import type { Paginated } from '../shared/pagination/cursor';
 import { CLOCK, systemClock, type Clock } from '../suscripciones/clock';
 import { isListed } from '../suscripciones/subscription-status';
 import {
@@ -98,6 +100,19 @@ export class PostsService {
     limit: number,
   ): Promise<PostRecord[]> {
     return this.posts.listByAuthorSince(authorId, since, limit);
+  }
+
+  async list(limit: number, cursor?: string): Promise<Paginated<PostView>> {
+    const decoded = cursor ? decodeCursor(cursor) : undefined;
+    const rows = await this.posts.listListed(limit, decoded, this.clock());
+    const page = paginate(
+      rows.map((row) => ({ ...row, t: row.createdAt.getTime() })),
+      limit,
+    );
+    return {
+      items: page.items.map((row) => toPostView(row)),
+      nextCursor: page.nextCursor,
+    };
   }
 
   async search(q: string, limit: number): Promise<SearchPostsResult> {

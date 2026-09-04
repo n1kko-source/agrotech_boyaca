@@ -171,6 +171,15 @@ describe('Posts CRUD (e2e AG-20)', () => {
       .get(`/posts/${postId}`)
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(200);
+
+    const feed = await request(app.getHttpServer())
+      .get('/posts')
+      .query({ limit: 20 })
+      .set('Authorization', `Bearer ${viewerToken}`)
+      .expect(200);
+    const page = feed.body as { items: { id: string }[]; nextCursor: string | null };
+    expect(page.items.some((item) => item.id === postId)).toBe(true);
+    expect(JSON.stringify(feed.body)).not.toContain('en_gracia');
   });
 
   it('PATCHes own fields, hides a stranger, and forbids ADMIN', async () => {

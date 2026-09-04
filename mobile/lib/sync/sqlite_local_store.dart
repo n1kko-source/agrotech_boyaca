@@ -1,12 +1,15 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
+import 'cursor.dart';
 import 'local_store.dart';
 import 'models.dart';
 import 'sqlite_schema.dart';
 import 'sync.constants.dart';
+import 'uuid.dart';
 
 class SqliteLocalStore implements LocalStore {
   SqliteLocalStore(this._db);
@@ -18,12 +21,18 @@ class SqliteLocalStore implements LocalStore {
     DatabaseFactory? factory,
   }) async {
     final dbFactory = factory ?? databaseFactory;
-    final dbPath = path ?? p.join(await dbFactory.getDatabasesPath(), sqliteDbFileName);
+    final dbPath =
+        path ?? p.join(await dbFactory.getDatabasesPath(), sqliteDbFileName);
     final db = await dbFactory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 1,
+        version: 2,
         onCreate: (db, version) => createSyncSchema(db),
+        onUpgrade: (db, oldVersion, newVersion) async {
+          if (oldVersion < 2) {
+            await createPostPhotosTable(db);
+          }
+        },
       ),
     );
     return SqliteLocalStore(db);
@@ -46,7 +55,10 @@ class SqliteLocalStore implements LocalStore {
   }
 
   @override
-  Future<void> enqueueConversation(LocalConversation conversation, PendingOp op) {
+  Future<void> enqueueConversation(
+    LocalConversation conversation,
+    PendingOp op,
+  ) {
     return _db.transaction((txn) async {
       await _upsertConversation(txn, conversation);
       await _insertPending(txn, op);
@@ -110,11 +122,7 @@ class SqliteLocalStore implements LocalStore {
     }
     await _db.transaction((txn) async {
       for (final id in ids) {
-        await txn.delete(
-          'pending_ops',
-          where: 'op_id = ?',
-          whereArgs: [id],
-        );
+        await txn.delete('pending_ops', where: 'op_id = ?', whereArgs: [id]);
       }
     });
   }
@@ -150,8 +158,12 @@ class SqliteLocalStore implements LocalStore {
   Future<void> upsertAlert(LocalAlert alert) => _upsertAlert(_db, alert);
 
   @override
-  Future<void> deletePost(String id) =>
-      _db.delete('posts', where: 'id = ?', whereArgs: [id]);
+  Future<void> deletePost(String id) {
+    return _db.transaction((txn) async {
+      await txn.delete('post_photos', where: 'post_id = ?', whereArgs: [id]);
+      await txn.delete('posts', where: 'id = ?', whereArgs: [id]);
+    });
+  }
 
   @override
   Future<void> deleteProfile(String id) =>
@@ -219,8 +231,90 @@ class SqliteLocalStore implements LocalStore {
 
   @override
   Future<List<LocalPost>> listPosts() async {
-    final rows = await _db.query('posts', orderBy: 'created_at DESC');
+    final rows = await _db.query('posts', orderBy: 'created_at DESC, id DESC');
     return rows.map(LocalPost.fromRow).toList();
+  }
+
+  @override
+  Future<PagedPosts> listPostsPage({int limit = 20, String? cursor}) async {
+    final decoded = decodeFeedCursor(cursor);
+    final List<Map<String, Object?>> rows;
+    if (decoded == null) {
+      rows = await _db.query(
+        'posts',
+        orderBy: 'created_at DESC, id DESC',
+        limit: limit + 1,
+      );
+    } else {
+      final t = DateTime.fromMillisecondsSinceEpoch(
+        decoded.t,
+        isUtc: true,
+      ).toIso8601String();
+      rows = await _db.rawQuery(
+        '''
+        SELECT * FROM posts
+        WHERE created_at < ?
+           OR (created_at = ? AND id < ?)
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        ''',
+        [t, t, decoded.id, limit + 1],
+      );
+    }
+    return _pagePosts(rows, limit);
+  }
+
+  @override
+  Future<List<LocalPost>> searchPosts(String query, {int limit = 50}) async {
+    final needle = '%${query.trim().toLowerCase()}%';
+    if (query.trim().isEmpty) {
+      return const [];
+    }
+    final rows = await _db.rawQuery(
+      '''
+      SELECT * FROM posts
+      WHERE lower(title) LIKE ?
+         OR lower(description) LIKE ?
+         OR lower(category) LIKE ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?
+      ''',
+      [needle, needle, needle, limit],
+    );
+    return rows.map(LocalPost.fromRow).toList();
+  }
+
+  @override
+  Future<void> replacePostPhotos(String postId, List<Uint8List> photos) {
+    return _db.transaction((txn) async {
+      await txn.delete(
+        'post_photos',
+        where: 'post_id = ?',
+        whereArgs: [postId],
+      );
+      for (var i = 0; i < photos.length; i++) {
+        await txn.insert('post_photos', {
+          'id': uuidV4(),
+          'post_id': postId,
+          'sort_order': i,
+          'bytes': photos[i],
+        });
+      }
+    });
+  }
+
+  @override
+  Future<List<Uint8List>> listPostPhotos(String postId) async {
+    final rows = await _db.query(
+      'post_photos',
+      where: 'post_id = ?',
+      whereArgs: [postId],
+      orderBy: 'sort_order ASC',
+    );
+    return [
+      for (final row in rows)
+        if (row['bytes'] is Uint8List) row['bytes']! as Uint8List,
+    ];
   }
 
   @override
@@ -350,4 +444,20 @@ class SqliteLocalStore implements LocalStore {
   }
 
   String _sinceKey(String userId) => 'since:$userId';
+}
+
+PagedPosts _pagePosts(List<Map<String, Object?>> rows, int limit) {
+  final hasMore = rows.length > limit;
+  final slice = hasMore ? rows.sublist(0, limit) : rows;
+  final items = slice.map(LocalPost.fromRow).toList();
+  final last = items.isEmpty ? null : items.last;
+  return PagedPosts(
+    items: items,
+    nextCursor: hasMore && last != null
+        ? encodeFeedCursor(
+            id: last.id,
+            t: last.createdAt.toUtc().millisecondsSinceEpoch,
+          )
+        : null,
+  );
 }

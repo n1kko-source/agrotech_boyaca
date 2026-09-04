@@ -1,7 +1,7 @@
 # AgroTech Boyacá — Contexto arquitectónico
 
 > Guía base del proyecto. **El código en este repo manda.** Si un ticket Jira contradice lo implementado, se sigue el código y se actualiza este archivo en el mismo cambio.
-> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41), `AdminModule`, FTS de comunidad (AG-21), CRUD HTTP de posts (AG-20), precios de commodities (AG-23), push FCM (AG-24), clima/alertas (AG-25), guías técnicas PDF/audio (AG-26), login Flutter ramificado (AG-19), mensajería 1:1 (AG-22), sync offline LWW (AG-27), persistencia SQLite del cliente (AG-28), suscripción mensual de listado (AG-29) y hardening OWASP + auditoría de cifrado (AG-30).
+> Host backend: **Render** · Última alineación: auth NATURAL / JURIDICA / ADMIN, consentimiento Ley 1581 (AG-41), `AdminModule`, FTS de comunidad (AG-21), CRUD HTTP de posts (AG-20), precios de commodities (AG-23), push FCM (AG-24), clima/alertas (AG-25), guías técnicas PDF/audio (AG-26), login Flutter ramificado (AG-19), mensajería 1:1 (AG-22), sync offline LWW (AG-27), persistencia SQLite del cliente (AG-28), suscripción mensual de listado (AG-29), hardening OWASP + auditoría de cifrado (AG-30) y pantallas Flutter de comunidad (AG-35).
 
 ## Host de ejecución (canónico)
 
@@ -65,7 +65,7 @@ ADMIN no es usuario de la app rural: opera contra la API (Postman / curl / futur
 **Decisión: Flutter (Android primero)**
 
 - Desarrollo directo como app nativa Android con Flutter
-- Offline-first con SQLite local (`sqflite`) — posts, precios cacheados, mensajes, perfil y cola `pending_ops` (AG-28). Tokens de sesión en `flutter_secure_storage` (AG-19)
+- Offline-first con SQLite local (`sqflite`) — posts, fotos locales del anuncio, precios cacheados, mensajes, perfil y cola `pending_ops` (AG-28). Tokens de sesión en `flutter_secure_storage` (AG-19)
 - Sincronización con backend al recuperar señal vía `POST /sync` (AG-27: batch + LWW). El cliente encola, dispara el POST y aplica el delta (AG-28)
 - Push notifications nativas vía FCM (`NotificationsModule`; módulo de noticias no implementado)
 - **Fase 2:** mismo codebase Flutter compila para iOS sin reescritura
@@ -91,12 +91,23 @@ Código en `mobile/lib/sync/`. Solo corre con sesión NATURAL / JURIDICA (la app
 
 | Pieza | Contrato |
 |---|---|
-| SQLite | Archivo `agrotech.db` (`sqflite`). Esquema espejo: `posts`, `marketplace_profiles`, `conversations`, `messages`, `commodity_prices`, `weather_alerts` + cola `pending_ops` + `sync_meta` (`since` por `userId`) |
+| SQLite | Archivo `agrotech.db` (`sqflite`). Esquema espejo: `posts`, `marketplace_profiles`, `conversations`, `messages`, `commodity_prices`, `weather_alerts` + cola `pending_ops` + `sync_meta` (`since` por `userId`) + `post_photos` (JPEG locales del anuncio, AG-35; no van en `/sync`) |
 | Cola | Cada escritura offline: `opId` UUID v4, `entityId` UUID v4, `clientTs` reloj local ISO-8601. Escritura optimista y fila de cola en la misma transacción. Padres antes que hijos (`conversation` antes que `message`) |
 | Batch | Máx. **50** ops por `POST /sync`. `since` = último `serverTime` de ese usuario. Sin cola y sin `since` no hay POST (no se vuelca el mundo en 2G) |
 | Señal | `connectivity_plus`: radio `none` → no POST y se cancela el timer. Al pasar a con enlace, al escribir con red, o al volver a primer plano → `POST /sync`. Un solo flush en vuelo. Si el POST falla (timeout / 5xx / 429) y el radio sigue arriba, reintento 5s → 15s → 45s (tope 45s). 400/403 no vacían la cola ni martillan: un reintento al tope de 45s o al resume. Éxito o escritura nueva reinician la serie |
 | Delta | Upsert local de `posts`, ficha, hilos, mensajes y alertas. `applied`/`conflict`/`rejected` salen de la cola. `conflict` aplica `record`. `rejected` sin `record` revierte el optimista. Los precios globales no vienen en el delta: se cachean al encolar un `precio` o al guardar un `GET /commodities/precios` |
 | UI | Banner en home: **Sin conexión** (sin radio) / **Sincronizando…** (flush, backoff o cola > 0) / **Sincronizado** (radio y cola vacía) |
+
+### 3.3 Cliente Flutter — Comunidad (AG-35)
+
+Código en `mobile/lib/comunidad/`. Consume AG-20 / AG-21 / AG-28. El modelo HTTP de post sigue siendo `{ title, description, category }` (sin fotos ni precio en Postgres).
+
+| Pieza | Contrato |
+|---|---|
+| Home/Feed | Lista cursor (`GET /posts` al haber radio; SQLite si no). Pull-to-refresh dispara `POST /sync` y recarga. Offline sirve la página local |
+| Detalle | `GET /posts/:id` con fallback SQLite. Muestra producto, cantidad, precio, ubicación (campos de oferta embebidos en `description`) y fotos locales. **Contactar** encola `conversation` (AG-22 / AG-28). El autor ve **Editar** |
+| Alta/edición | Misma cola `pending_ops` de AG-28 (create o update LWW). Cantidad / precio / ubicación se serializan en `description` para FTS. Fotos: `image_picker` las comprime (1280 px, JPEG 70) **antes** de persistir; viven en SQLite `post_photos` (el body de `/sync` no admite media y el DTO de AG-20 no tiene fotos) |
+| Búsqueda | `GET /posts/search?q=` (AG-21). Sin radio, filtra el cache SQLite. Estado **sin resultados** explícito |
 
 Auth (OTP / login) sigue exigiendo red. No se persisten teléfono, correo, NIT ni contraseña en SQLite.
 
@@ -185,10 +196,11 @@ npm run auth:create-admin -- ops@example.com 'a-strong-password'
 
 ### 4.4.1 Comunidad — contrato HTTP
 
-Listados de marketplace. JWT de cualquier rol para buscar y para `GET /posts/:id`. Crear/editar/borrar post o ficha pública: solo `NATURAL` / `JURIDICA` (`ADMIN` → `403`). Sin token → `401`. El perfil público **no** lleva teléfono, email ni NIT. Search de posts y perfiles **omite** autores `vencida` (AG-29); el DTO no expone gracia. `GET /posts/:id` deja ver al dueño su anuncio aunque esté `vencida`; otro visor (incl. ADMIN) solo si el autor está listado (`activa` / `en_gracia`). Inexistente o no listable para el visor → `404` (nunca `403`: no se filtra existencia).
+Listados de marketplace. JWT de cualquier rol para el feed, buscar y para `GET /posts/:id`. Crear/editar/borrar post o ficha pública: solo `NATURAL` / `JURIDICA` (`ADMIN` → `403`). Sin token → `401`. El perfil público **no** lleva teléfono, email ni NIT. Search y feed de posts **omite** autores `vencida` (AG-29); el DTO no expone gracia. `GET /posts/:id` deja ver al dueño su anuncio aunque esté `vencida`; otro visor (incl. ADMIN) solo si el autor está listado (`activa` / `en_gracia`). Inexistente o no listable para el visor → `404` (nunca `403`: no se filtra existencia).
 
 | Método | Ruta | Quién | Resultado |
 |---|---|---|---|
+| `GET` | `/posts?limit=&cursor=` | JWT | Feed cursor (`createdAt` DESC). Solo autores listados (`activa` / `en_gracia`). `{ items, nextCursor }`. Sin token → `401`. DTO sin gracia |
 | `GET` | `/posts/search?q=&limit=` | JWT | Ítems ranqueados (`ts_rank_cd` + `similarity` / `word_similarity`). `q` 1–100 chars. `limit` default 20, max 50 |
 | `GET` | `/posts/:id` | JWT | `PostView` `{ id, authorId, title, description, category, createdAt }`. Dueño: siempre. Otro: solo si el autor está listado. Sin fila o no listable → 404. DTO sin `en_gracia` ni badge |
 | `POST` | `/posts` | NATURAL, JURIDICA | `{ title, description, category }` → 201 |

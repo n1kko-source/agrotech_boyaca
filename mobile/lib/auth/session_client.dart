@@ -36,16 +36,15 @@ class SessionClient {
     Map<String, dynamic>? body,
     bool auth = false,
   }) {
-    return _send(
-      method: 'POST',
-      path: path,
-      body: body,
-      auth: auth,
-    );
+    return _send(method: 'POST', path: path, body: body, auth: auth);
   }
 
-  Future<http.Response> get(String path, {bool auth = false}) {
-    return _send(method: 'GET', path: path, auth: auth);
+  Future<http.Response> get(
+    String path, {
+    bool auth = false,
+    Map<String, String>? query,
+  }) {
+    return _send(method: 'GET', path: path, auth: auth, query: query);
   }
 
   Future<void> persistTokens(IssuedTokens tokens) {
@@ -60,6 +59,7 @@ class SessionClient {
     required String method,
     required String path,
     Map<String, dynamic>? body,
+    Map<String, String>? query,
     required bool auth,
     bool retry = true,
   }) async {
@@ -69,7 +69,13 @@ class SessionClient {
     final session = auth ? await store.read() : null;
     http.Response response;
     try {
-      response = await _dispatch(method, path, body, session?.accessToken);
+      response = await _dispatch(
+        method,
+        path,
+        body,
+        session?.accessToken,
+        query,
+      );
     } on SocketException {
       throw const NetworkException();
     } on TimeoutException {
@@ -85,6 +91,7 @@ class SessionClient {
           method: method,
           path: path,
           body: body,
+          query: query,
           auth: true,
           retry: false,
         );
@@ -98,8 +105,12 @@ class SessionClient {
     String path,
     Map<String, dynamic>? body,
     String? accessToken,
+    Map<String, String>? query,
   ) {
-    final uri = Uri.parse('$baseUrl$path');
+    var uri = Uri.parse('$baseUrl$path');
+    if (query != null && query.isNotEmpty) {
+      uri = uri.replace(queryParameters: {...uri.queryParameters, ...query});
+    }
     final headers = <String, String>{
       'Accept': 'application/json',
       if (body != null) 'Content-Type': 'application/json',
@@ -109,9 +120,7 @@ class SessionClient {
     if (method == 'GET') {
       return _http.get(uri, headers: headers).timeout(timeout);
     }
-    return _http
-        .post(uri, headers: headers, body: encoded)
-        .timeout(timeout);
+    return _http.post(uri, headers: headers, body: encoded).timeout(timeout);
   }
 
   Future<void> ensureFreshAccess() async {
@@ -141,9 +150,13 @@ class SessionClient {
       }
       http.Response response;
       try {
-        response = await _dispatch('POST', '/auth/refresh', {
-          'refreshToken': session.refreshToken,
-        }, null);
+        response = await _dispatch(
+          'POST',
+          '/auth/refresh',
+          {'refreshToken': session.refreshToken},
+          null,
+          null,
+        );
       } on SocketException {
         throw const NetworkException();
       } on TimeoutException {

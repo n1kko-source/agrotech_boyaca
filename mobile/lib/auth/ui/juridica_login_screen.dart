@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
+import '../../theme/app_fields.dart';
 import '../auth_scope.dart';
 import 'juridica_register_screen.dart';
 import 'secure_screen.dart';
@@ -45,41 +47,47 @@ class _JuridicaLoginScreenState extends State<JuridicaLoginScreen> {
             child: ListView(
               padding: const EdgeInsets.all(24),
               children: [
-                TextFormField(
-                  key: const Key('juridica_email'),
-                  controller: _email,
-                  keyboardType: TextInputType.emailAddress,
-                  autofillHints: const [AutofillHints.email],
-                  decoration: const InputDecoration(labelText: 'Correo'),
-                  validator: (value) {
-                    final email = value?.trim() ?? '';
-                    if (!email.contains('@') || !email.contains('.')) {
-                      return 'Ingrese un correo válido.';
-                    }
-                    return null;
-                  },
+                LabeledField(
+                  label: 'Correo',
+                  child: TextFormField(
+                    key: const Key('juridica_email'),
+                    controller: _email,
+                    keyboardType: TextInputType.emailAddress,
+                    autofillHints: const [AutofillHints.email],
+                    decoration: appHint('coop.siachoque@example.com'),
+                    validator: (value) {
+                      final email = value?.trim() ?? '';
+                      if (!email.contains('@') || !email.contains('.')) {
+                        return 'Ingrese un correo válido.';
+                      }
+                      return null;
+                    },
+                  ),
                 ),
                 const SizedBox(height: 16),
-                TextFormField(
-                  key: const Key('juridica_password'),
-                  controller: _password,
-                  obscureText: _obscure,
-                  autofillHints: const [AutofillHints.password],
-                  decoration: InputDecoration(
-                    labelText: 'Contraseña',
-                    suffixIcon: IconButton(
-                      onPressed: () => setState(() => _obscure = !_obscure),
-                      icon: Icon(
-                        _obscure ? Icons.visibility : Icons.visibility_off,
+                LabeledField(
+                  label: 'Contraseña',
+                  child: TextFormField(
+                    key: const Key('juridica_password'),
+                    controller: _password,
+                    obscureText: _obscure,
+                    autofillHints: const [AutofillHints.password],
+                    decoration: appHint(
+                      'ClaveSegura1',
+                      suffixIcon: IconButton(
+                        onPressed: () => setState(() => _obscure = !_obscure),
+                        icon: Icon(
+                          _obscure ? Icons.visibility : Icons.visibility_off,
+                        ),
                       ),
                     ),
+                    validator: (value) {
+                      if ((value ?? '').length < 8) {
+                        return 'Mínimo 8 caracteres.';
+                      }
+                      return null;
+                    },
                   ),
-                  validator: (value) {
-                    if ((value ?? '').length < 8) {
-                      return 'Mínimo 8 caracteres.';
-                    }
-                    return null;
-                  },
                 ),
                 if (auth.errorMessage != null) ...[
                   const SizedBox(height: 12),
@@ -119,7 +127,7 @@ class _JuridicaLoginScreenState extends State<JuridicaLoginScreen> {
             ),
           ),
         ),
-      ),
+      ).animate().fadeIn(duration: 180.ms),
     );
   }
 }

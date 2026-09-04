@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
+import '../../theme/app_fields.dart';
 import '../auth_scope.dart';
 import '../phone.dart';
 import 'natural_otp_screen.dart';
@@ -57,22 +59,24 @@ class _NaturalPhoneScreenState extends State<NaturalPhoneScreen> {
               style: TextStyle(fontSize: 16),
             ),
             const SizedBox(height: 24),
-            TextField(
-              key: const Key('phone_field'),
-              controller: _phone,
-              keyboardType: TextInputType.phone,
-              textInputAction: TextInputAction.done,
-              autofillHints: const [AutofillHints.telephoneNumber],
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9+\s-]')),
-              ],
-              decoration: InputDecoration(
-                labelText: 'Celular',
-                prefixText: '+57 ',
-                hintText: '300 111 2233',
-                errorText: _fieldError,
+            LabeledField(
+              label: 'Celular',
+              child: TextField(
+                key: const Key('phone_field'),
+                controller: _phone,
+                keyboardType: TextInputType.phone,
+                textInputAction: TextInputAction.done,
+                autofillHints: const [AutofillHints.telephoneNumber],
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9+\s-]')),
+                ],
+                decoration: appHint(
+                  '300 111 2233',
+                  prefixText: '+57 ',
+                  errorText: _fieldError,
+                ),
+                onSubmitted: (_) => _submit(),
               ),
-              onSubmitted: (_) => _submit(),
             ),
             if (auth.errorMessage != null) ...[
               const SizedBox(height: 12),
@@ -91,11 +95,11 @@ class _NaturalPhoneScreenState extends State<NaturalPhoneScreen> {
                       width: 22,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Enviar código'),
+                    : const Text('Enviar código'),
             ),
           ],
         ),
       ),
-    );
+    ).animate().fadeIn(duration: 180.ms);
   }
 }

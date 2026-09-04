@@ -21,6 +21,7 @@ class AuthController extends ChangeNotifier {
   String? pendingEmail;
   String? _pendingPassword;
   String? otpPhone;
+  String? lastDevCode;
 
   Future<void> restore() async {
     phase = AuthPhase.bootstrapping;
@@ -69,7 +70,7 @@ class AuthController extends ChangeNotifier {
   Future<bool> sendOtp(String phoneE164) async {
     return _run(() async {
       otpPhone = phoneE164;
-      await _api.sendOtp(phoneE164);
+      lastDevCode = await _api.sendOtp(phoneE164);
     });
   }
 
@@ -151,6 +152,27 @@ class AuthController extends ChangeNotifier {
     }
   }
 
+  /// Debug-only session for exploring the UI without Firebase or the backend.
+  void enterNaturalDemo() {
+    assert(() {
+      pendingEmail = null;
+      _pendingPassword = null;
+      otpPhone = null;
+      lastDevCode = null;
+      session = Session(
+        accessToken: 'demo-access',
+        refreshToken: 'demo-refresh',
+        accessExpiresAt: DateTime.now().add(const Duration(hours: 1)),
+        sub: 'demo-natural',
+        role: AppRole.natural,
+      );
+      phase = AuthPhase.signedIn;
+      errorMessage = null;
+      notifyListeners();
+      return true;
+    }());
+  }
+
   Future<void> logout() async {
     busy = true;
     notifyListeners();
@@ -160,6 +182,7 @@ class AuthController extends ChangeNotifier {
       pendingEmail = null;
       _pendingPassword = null;
       otpPhone = null;
+      lastDevCode = null;
       session = null;
       busy = false;
       _becomeGuest();
@@ -197,6 +220,7 @@ class AuthController extends ChangeNotifier {
     }
     session = local;
     otpPhone = null;
+    lastDevCode = null;
     pendingEmail = null;
     _pendingPassword = null;
     phase = AuthPhase.signedIn;

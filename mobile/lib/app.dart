@@ -6,15 +6,18 @@ import 'auth/models.dart';
 import 'auth/ui/home_screen.dart';
 import 'auth/ui/juridica_pending_screen.dart';
 import 'auth/ui/role_select_screen.dart';
+import 'comunidad/comunidad_scope.dart';
+import 'comunidad/posts_controller.dart';
 import 'sync/sync_controller.dart';
 import 'sync/sync_scope.dart';
 import 'theme/app_theme.dart';
 
 class AgroTechApp extends StatefulWidget {
-  const AgroTechApp({super.key, required this.auth, this.sync});
+  const AgroTechApp({super.key, required this.auth, this.sync, this.posts});
 
   final AuthController auth;
   final SyncController? sync;
+  final PostsController? posts;
 
   @override
   State<AgroTechApp> createState() => _AgroTechAppState();
@@ -49,6 +52,10 @@ class _AgroTechAppState extends State<AgroTechApp> with WidgetsBindingObserver {
       theme: AppTheme.light,
       home: AuthGate(guestNavKey: _guestNavKey),
     );
+    final posts = widget.posts;
+    if (posts != null) {
+      app = ComunidadScope(controller: posts, child: app);
+    }
     final sync = widget.sync;
     if (sync != null) {
       app = SyncScope(controller: sync, child: app);

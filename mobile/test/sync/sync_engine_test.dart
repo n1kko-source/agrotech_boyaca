@@ -45,75 +45,102 @@ void main() {
     expect(api.calls, 0);
   });
 
-  test('flush posts a batch of 50 and applies delta + dequeues applied', () async {
-    for (var i = 0; i < 51; i++) {
-      await engine.createPost(
-        userId: 'user-1',
-        title: 'Lote $i',
-        description: 'desc',
-        category: 'papa',
-      );
-    }
-    api.serverTime = '2026-09-01T12:01:00.000Z';
-    api.delta = SyncDelta(
-      posts: [
-        LocalPost(
-          id: 'delta-post',
-          authorId: 'user-1',
-          title: 'Desde el servidor',
-          description: 'delta',
-          category: 'papa',
-          createdAt: DateTime.utc(2026, 9, 1, 11),
-          updatedAt: DateTime.utc(2026, 9, 1, 11, 5),
-        ),
-      ],
-      conversations: const [],
-      messages: const [],
-      alertas: const [],
-    );
-
-    await engine.flush('user-1');
-
-    expect(api.calls, 2);
-    expect(api.lastOps, hasLength(1));
-    expect(store.pending, isEmpty);
-    expect(store.since['user-1'], '2026-09-01T12:01:00.000Z');
-    expect(store.posts['delta-post']?.title, 'Desde el servidor');
-  });
-
-  test('conflict applies the winning server record and leaves the queue', () async {
-    await engine.upsertProfile(
+  test('updatePost enqueues the same entityId', () async {
+    final created = await engine.createPost(
       userId: 'user-1',
-      displayName: 'Nombre viejo',
-      municipality: 'Siachoque',
+      title: 'Papa',
+      description: 'Tunja',
       category: 'papa',
     );
-    final op = store.pending.single;
-    api.serverTime = '2026-09-01T12:02:00.000Z';
-    api.resultsFor = (ops) => [
-      SyncOpResult(
-        opId: op.opId,
-        entity: SyncEntity.profile,
-        entityId: op.entityId,
-        status: SyncOpStatus.conflict,
-        record: {
-          'id': op.entityId,
-          'userId': 'user-1',
-          'displayName': 'Finca El Rosal',
-          'municipality': 'Siachoque',
-          'bio': '',
-          'category': 'papa',
-          'createdAt': '2026-09-01T11:00:00.000Z',
-          'updatedAt': '2026-09-01T11:50:00.000Z',
-        },
-      ),
-    ];
-
-    await engine.flush('user-1');
-
-    expect(store.pending, isEmpty);
-    expect(store.profiles['user-1']?.displayName, 'Finca El Rosal');
+    final updated = await engine.updatePost(
+      userId: 'user-1',
+      id: created.id,
+      title: 'Papa criolla',
+      description: 'Siachoque',
+      category: 'papa',
+    );
+    expect(updated.id, created.id);
+    expect(store.posts[created.id]?.title, 'Papa criolla');
+    expect(store.pending, hasLength(2));
+    expect(store.pending.last.entityId, created.id);
+    expect(store.pending.last.payload['title'], 'Papa criolla');
   });
+
+  test(
+    'flush posts a batch of 50 and applies delta + dequeues applied',
+    () async {
+      for (var i = 0; i < 51; i++) {
+        await engine.createPost(
+          userId: 'user-1',
+          title: 'Lote $i',
+          description: 'desc',
+          category: 'papa',
+        );
+      }
+      api.serverTime = '2026-09-01T12:01:00.000Z';
+      api.delta = SyncDelta(
+        posts: [
+          LocalPost(
+            id: 'delta-post',
+            authorId: 'user-1',
+            title: 'Desde el servidor',
+            description: 'delta',
+            category: 'papa',
+            createdAt: DateTime.utc(2026, 9, 1, 11),
+            updatedAt: DateTime.utc(2026, 9, 1, 11, 5),
+          ),
+        ],
+        conversations: const [],
+        messages: const [],
+        alertas: const [],
+      );
+
+      await engine.flush('user-1');
+
+      expect(api.calls, 2);
+      expect(api.lastOps, hasLength(1));
+      expect(store.pending, isEmpty);
+      expect(store.since['user-1'], '2026-09-01T12:01:00.000Z');
+      expect(store.posts['delta-post']?.title, 'Desde el servidor');
+    },
+  );
+
+  test(
+    'conflict applies the winning server record and leaves the queue',
+    () async {
+      await engine.upsertProfile(
+        userId: 'user-1',
+        displayName: 'Nombre viejo',
+        municipality: 'Siachoque',
+        category: 'papa',
+      );
+      final op = store.pending.single;
+      api.serverTime = '2026-09-01T12:02:00.000Z';
+      api.resultsFor = (ops) => [
+        SyncOpResult(
+          opId: op.opId,
+          entity: SyncEntity.profile,
+          entityId: op.entityId,
+          status: SyncOpStatus.conflict,
+          record: {
+            'id': op.entityId,
+            'userId': 'user-1',
+            'displayName': 'Finca El Rosal',
+            'municipality': 'Siachoque',
+            'bio': '',
+            'category': 'papa',
+            'createdAt': '2026-09-01T11:00:00.000Z',
+            'updatedAt': '2026-09-01T11:50:00.000Z',
+          },
+        ),
+      ];
+
+      await engine.flush('user-1');
+
+      expect(store.pending, isEmpty);
+      expect(store.profiles['user-1']?.displayName, 'Finca El Rosal');
+    },
+  );
 
   test('rejected without record reverts the optimistic write', () async {
     final post = await engine.createPost(
@@ -171,21 +198,24 @@ void main() {
     ]);
   });
 
-  test('caches a price from GET /commodities/precios without enqueueing', () async {
-    await engine.cachePrice(
-      LocalPrice(
-        id: 'price-1',
-        producto: 'papa',
-        region: 'siachoque',
-        precio: 2000,
-        unidad: 'kg',
-        moneda: 'COP',
-        updatedAt: DateTime.utc(2026, 9, 1),
-      ),
-    );
-    expect(store.pending, isEmpty);
-    expect(store.prices['papa|siachoque']?.precio, 2000);
-  });
+  test(
+    'caches a price from GET /commodities/precios without enqueueing',
+    () async {
+      await engine.cachePrice(
+        LocalPrice(
+          id: 'price-1',
+          producto: 'papa',
+          region: 'siachoque',
+          precio: 2000,
+          unidad: 'kg',
+          moneda: 'COP',
+          updatedAt: DateTime.utc(2026, 9, 1),
+        ),
+      );
+      expect(store.pending, isEmpty);
+      expect(store.prices['papa|siachoque']?.precio, 2000);
+    },
+  );
 
   test('uuid v4 matches the backend shape', () {
     final id = uuidV4();

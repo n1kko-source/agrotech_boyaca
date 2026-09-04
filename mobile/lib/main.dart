@@ -7,6 +7,9 @@ import 'auth/auth_api.dart';
 import 'auth/auth_controller.dart';
 import 'auth/secure_token_store.dart';
 import 'auth/session_client.dart';
+import 'comunidad/photo_source.dart';
+import 'comunidad/posts_api.dart';
+import 'comunidad/posts_controller.dart';
 import 'config/api_config.dart';
 import 'sync/network_status.dart';
 import 'sync/sqlite_local_store.dart';
@@ -26,6 +29,11 @@ Future<void> main() async {
     auth: auth,
     network: ConnectivityNetworkStatus(),
   );
-  runApp(AgroTechApp(auth: auth, sync: sync));
+  final posts = PostsController(
+    sync: sync,
+    api: PostsApi(client),
+    photos: ImagePickerPhotoSource(),
+  );
+  runApp(AgroTechApp(auth: auth, sync: sync, posts: posts));
   unawaited(auth.restore());
 }
