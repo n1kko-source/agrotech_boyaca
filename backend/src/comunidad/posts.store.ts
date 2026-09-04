@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import type { CursorPayload } from '../shared/pagination/cursor';
+import { SUSCRIPCION_GRACE_MS } from '../suscripciones/suscripciones.constants';
 import { isListed } from '../suscripciones/subscription-status';
 import type { SubscriptionsStore } from '../suscripciones/subscriptions.store';
 import { rankDocument } from './search/fts';
@@ -42,6 +44,12 @@ export interface PostsStore {
     authorId: string,
     since: Date,
     limit: number,
+  ): Promise<PostRecord[]>;
+  /** Newest first, listed authors only (`activa` / `en_gracia`). Returns limit+1. */
+  listListed(
+    limit: number,
+    cursor?: CursorPayload,
+    asOf?: Date,
   ): Promise<PostRecord[]>;
   search(q: string, limit: number, asOf?: Date): Promise<RankedPost[]>;
 }
@@ -103,6 +111,37 @@ export class PrismaPostsStore implements PostsStore {
     return rows.map(toPostRecord);
   }
 
+  async listListed(
+    limit: number,
+    cursor?: CursorPayload,
+    asOf = new Date(),
+  ): Promise<PostRecord[]> {
+    const listedSince = new Date(asOf.getTime() - SUSCRIPCION_GRACE_MS);
+    const rows = await this.prisma.db.post.findMany({
+      where: {
+        author: {
+          subscription: { currentPeriodEnd: { gte: listedSince } },
+        },
+        ...(cursor
+          ? {
+              OR: [
+                { createdAt: { lt: new Date(cursor.t) } },
+                {
+                  AND: [
+                    { createdAt: new Date(cursor.t) },
+                    { id: { lt: cursor.id } },
+                  ],
+                },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+    });
+    return rows.map(toPostRecord);
+  }
+
   async findById(id: string): Promise<PostRecord | null> {
     const row = await this.prisma.db.post.findUnique({ where: { id } });
     return row ? toPostRecord(row) : null;
@@ -113,8 +152,11 @@ export class PrismaPostsStore implements PostsStore {
     try {
       await this.prisma.db.post.delete({ where: { id } });
       return true;
-    } catch {
-      return false;
+    } catch (err) {
+      if (isRecordNotFound(err)) {
+        return false;
+      }
+      throw err;
     }
   }
 
@@ -224,6 +266,36 @@ export class MemoryPostsStore implements PostsStore {
     return Promise.resolve(rows);
   }
 
+  listListed(
+    limit: number,
+    cursor?: CursorPayload,
+    asOf = new Date(),
+  ): Promise<PostRecord[]> {
+    const rows = this.rows
+      .filter((row) => {
+        if (
+          this.subscriptions &&
+          !isListed(this.subscriptions.getPeriodEnd(row.authorId), asOf)
+        ) {
+          return false;
+        }
+        if (!cursor) {
+          return true;
+        }
+        const t = row.createdAt.getTime();
+        return t < cursor.t || (t === cursor.t && row.id < cursor.id);
+      })
+      .sort((left, right) => {
+        const delta = right.createdAt.getTime() - left.createdAt.getTime();
+        if (delta !== 0) {
+          return delta;
+        }
+        return right.id.localeCompare(left.id);
+      })
+      .slice(0, limit + 1);
+    return Promise.resolve(rows);
+  }
+
   findById(id: string): Promise<PostRecord | null> {
     return Promise.resolve(this.rows.find((row) => row.id === id) ?? null);
   }
@@ -266,6 +338,13 @@ export class MemoryPostsStore implements PostsStore {
     });
     return Promise.resolve(ranked.slice(0, limit));
   }
+}
+
+function isRecordNotFound(err: unknown): boolean {
+  if (!err || typeof err !== 'object' || !('code' in err)) {
+    return false;
+  }
+  return (err as { code?: string }).code === 'P2025';
 }
 
 function toPostRecord(row: {

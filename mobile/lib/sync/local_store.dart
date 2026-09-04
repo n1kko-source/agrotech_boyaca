@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'models.dart';
 import 'sync.constants.dart';
 
@@ -19,10 +21,7 @@ abstract class LocalStore {
 
   Future<void> enqueueAlert(LocalAlert alert, PendingOp op);
 
-  Future<List<PendingOp>> peekPending(
-    String userId, {
-    int limit = syncOpsMax,
-  });
+  Future<List<PendingOp>> peekPending(String userId, {int limit = syncOpsMax});
 
   Future<void> removePending(Iterable<String> opIds);
 
@@ -61,6 +60,14 @@ abstract class LocalStore {
   Future<LocalPrice?> findPrice(String producto, String region);
 
   Future<List<LocalPost>> listPosts();
+
+  Future<PagedPosts> listPostsPage({int limit = 20, String? cursor});
+
+  Future<List<LocalPost>> searchPosts(String query, {int limit = 50});
+
+  Future<void> replacePostPhotos(String postId, List<Uint8List> photos);
+
+  Future<List<Uint8List>> listPostPhotos(String postId);
 
   Future<List<LocalMessage>> listMessages(String conversationId);
 

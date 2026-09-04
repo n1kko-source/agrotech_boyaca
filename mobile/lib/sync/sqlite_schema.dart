@@ -88,4 +88,19 @@ Future<void> createSyncSchema(Database db) async {
       value TEXT NOT NULL
     )
   ''');
+  await createPostPhotosTable(db);
+}
+
+Future<void> createPostPhotosTable(Database db) async {
+  await db.execute('''
+    CREATE TABLE post_photos (
+      id TEXT PRIMARY KEY NOT NULL,
+      post_id TEXT NOT NULL,
+      sort_order INTEGER NOT NULL,
+      bytes BLOB NOT NULL
+    )
+  ''');
+  await db.execute(
+    'CREATE INDEX post_photos_post ON post_photos(post_id, sort_order)',
+  );
 }

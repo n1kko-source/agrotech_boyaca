@@ -93,6 +93,26 @@ void main() {
     );
   });
 
+  testWidgets('local OTP shows debug code when API returns devCode', (
+    tester,
+  ) async {
+    final env = await _env();
+    env.api.otpDevCode = '123456';
+    env.auth.otpPhone = '+573001112233';
+    await env.auth.sendOtp('+573001112233');
+    await tester.pumpWidget(
+      AuthScope(
+        controller: env.auth,
+        child: const MaterialApp(home: NaturalOtpScreen(cooldownSeconds: 1)),
+      ),
+    );
+    await tester.pump();
+    expect(find.byKey(const Key('otp_dev_hint')), findsOneWidget);
+    expect(find.textContaining('123456'), findsWidgets);
+    // Let animate timers settle before unmounting.
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+  });
+
   testWidgets('JURIDICA login pending shows review screen', (tester) async {
     final env = await _env();
     env.api.loginForbidden = true;
@@ -121,6 +141,10 @@ void main() {
 
   testWidgets('JURIDICA register form reaches pending', (tester) async {
     final env = await _env();
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(AgroTechApp(auth: env.auth));
     await tester.pump();
 
@@ -128,6 +152,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('juridica_go_register')));
     await tester.pumpAndSettle();
+
+    expect(find.text('Contraseña'), findsWidgets);
+    expect(find.text('ClaveSegura1'), findsWidgets);
 
     await tester.enterText(
       find.byKey(const Key('register_email')),
@@ -145,7 +172,6 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Cooperativa').last);
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('register_submit')));
     await tester.tap(find.byKey(const Key('privacy_checkbox')));
     await tester.tap(find.byKey(const Key('register_submit')));
     await tester.pump();

@@ -47,6 +47,12 @@
 			</array>
 		</dict>
 	</dict>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>AgroTech comprime las fotos de su oferta en el teléfono antes de guardarlas.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>AgroTech no guarda fotos en su galería; solo las lee para el anuncio.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>AgroTech usa la cámara para fotos de la oferta, comprimidas en el teléfono.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

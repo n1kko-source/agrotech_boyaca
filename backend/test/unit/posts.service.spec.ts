@@ -166,6 +166,47 @@ describe('PostsService', () => {
     ).resolves.toMatchObject({ id: expiredPost.id });
   });
 
+  it('lists listed posts newest-first with a cursor and omits vencida', async () => {
+    const subscriptions = new MemorySubscriptionsStore();
+    await subscriptions.upsert({
+      userId: AUTHOR,
+      currentPeriodEnd: T0,
+      remindedExpiryAt: null,
+      remindedGraceAt: null,
+      remindedHiddenAt: null,
+    });
+    const store = new MemoryPostsStore(subscriptions);
+    const older = await store.create({
+      authorId: AUTHOR,
+      title: 'Habas',
+      description: 'Tunja',
+      category: 'haba',
+    });
+    older.createdAt = new Date('2026-08-01T12:00:00.000Z');
+    const newer = await store.create({
+      authorId: AUTHOR,
+      title: 'Papa criolla',
+      description: 'Siachoque',
+      category: 'papa',
+    });
+    newer.createdAt = new Date('2026-09-01T12:00:00.000Z');
+    await store.create({
+      authorId: VIEWER,
+      title: 'Sin suscripcion',
+      description: 'Oculto',
+      category: 'papa',
+    });
+    const service = new PostsService(store, subscriptions, () => T0);
+    const first = await service.list(1);
+    expect(first.items).toHaveLength(1);
+    expect(first.items[0]?.title).toBe('Papa criolla');
+    expect(first.nextCursor).toEqual(expect.any(String));
+    const second = await service.list(1, first.nextCursor ?? undefined);
+    expect(second.items).toHaveLength(1);
+    expect(second.items[0]?.title).toBe('Habas');
+    expect(second.nextCursor).toBeNull();
+  });
+
   it('deleteOwn removes only the author row', async () => {
     const store = new MemoryPostsStore();
     const service = new PostsService(

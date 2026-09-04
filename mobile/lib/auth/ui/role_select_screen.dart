@@ -61,6 +61,16 @@ class RoleSelectScreen extends StatelessWidget {
                   );
                 },
               ),
+              const SizedBox(height: 16),
+              _RoleCard(
+                key: const Key('role_demo'),
+                title: 'Entrar en modo demo',
+                subtitle: 'Sesión NATURAL temporal, sin SMS ni backend.',
+                icon: Icons.science,
+                onTap: () {
+                  auth.enterNaturalDemo();
+                },
+              ),
               const Spacer(),
             ],
           ),

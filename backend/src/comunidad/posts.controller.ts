@@ -16,6 +16,8 @@ import type { JwtUser } from '../shared/auth/jwt-user';
 import { Role } from '../shared/auth/role.enum';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
 import { Roles } from '../shared/decorators/roles.decorator';
+import { CursorPaginationQueryDto } from '../shared/dto/cursor-pagination-query.dto';
+import type { Paginated } from '../shared/pagination/cursor';
 import { CreatePostDto } from './dto/create-post.dto';
 import { SearchQueryDto } from './dto/search-query.dto';
 import { PostsService, type PostView } from './posts.service';
@@ -27,6 +29,11 @@ export class PostsController {
   @Get('search')
   search(@Query() query: SearchQueryDto) {
     return this.posts.search(query.q, query.limit);
+  }
+
+  @Get()
+  list(@Query() query: CursorPaginationQueryDto): Promise<Paginated<PostView>> {
+    return this.posts.list(query.limit, query.cursor);
   }
 
   @Post()

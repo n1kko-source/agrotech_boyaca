@@ -1,9 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../config/api_config.dart';
+import '../../theme/app_fields.dart';
 import '../auth_scope.dart';
 import '../models.dart';
 import 'privacy_consent.dart';
@@ -37,7 +40,12 @@ class _NaturalOtpScreenState extends State<NaturalOtpScreen> {
       setState(() => _remaining -= 1);
     });
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final policy = await AuthScope.of(context).loadPrivacyPolicy();
+      final auth = AuthScope.of(context);
+      final hint = auth.lastDevCode;
+      if (hint != null && _code.text.isEmpty) {
+        setState(() => _code.text = hint);
+      }
+      final policy = await auth.loadPrivacyPolicy();
       if (mounted) {
         setState(() => _policy = policy);
       }
@@ -97,21 +105,35 @@ class _NaturalOtpScreenState extends State<NaturalOtpScreen> {
                 'Ingrese el código de 6 dígitos. Si no llega, puede reenviar cuando el tiempo termine.',
                 style: TextStyle(fontSize: 16),
               ),
-              const SizedBox(height: 24),
-              TextField(
-                key: const Key('otp_field'),
-                controller: _code,
-                keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.done,
-                autofillHints: const [AutofillHints.oneTimeCode],
-                maxLength: 6,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: InputDecoration(
-                  labelText: 'Código',
-                  counterText: '',
-                  errorText: _fieldError,
+              if (kDebugMode && auth.lastDevCode != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Modo local: no hay SMS. Código ${auth.lastDevCode}.',
+                  key: const Key('otp_dev_hint'),
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
                 ),
-                onSubmitted: (_) => _verify(),
+              ],
+              const SizedBox(height: 24),
+              LabeledField(
+                label: 'Código',
+                child: TextField(
+                  key: const Key('otp_field'),
+                  controller: _code,
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.done,
+                  autofillHints: const [AutofillHints.oneTimeCode],
+                  maxLength: 6,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: appHint(
+                    '123456',
+                    counterText: '',
+                    errorText: _fieldError,
+                  ),
+                  onSubmitted: (_) => _verify(),
+                ),
               ),
               const SizedBox(height: 8),
               PrivacyConsent(
@@ -151,7 +173,7 @@ class _NaturalOtpScreenState extends State<NaturalOtpScreen> {
             ],
           ),
         ),
-      ),
+      ).animate().fadeIn(duration: 180.ms),
     );
   }
 }

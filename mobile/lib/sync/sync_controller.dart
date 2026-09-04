@@ -9,10 +9,8 @@ import 'network_status.dart';
 import 'sync.constants.dart';
 import 'sync_engine.dart';
 
-typedef SyncTimerFactory = Timer Function(
-  Duration duration,
-  void Function() callback,
-);
+typedef SyncTimerFactory =
+    Timer Function(Duration duration, void Function() callback);
 
 /// Owns the visual sync state and fires `POST /sync` when the radio
 /// comes back. Feature screens write through this facade so the banner
@@ -61,6 +59,23 @@ class SyncController extends ChangeNotifier {
     return _write(
       (userId) => _engine.createPost(
         userId: userId,
+        title: title,
+        description: description,
+        category: category,
+      ),
+    );
+  }
+
+  Future<LocalPost> updatePost({
+    required String id,
+    required String title,
+    required String description,
+    required String category,
+  }) {
+    return _write(
+      (userId) => _engine.updatePost(
+        userId: userId,
+        id: id,
         title: title,
         description: description,
         category: category,
@@ -302,10 +317,7 @@ class SyncController extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    if (_flushing ||
-        _retryTimer != null ||
-        pendingCount > 0 ||
-        _flushFailed) {
+    if (_flushing || _retryTimer != null || pendingCount > 0 || _flushFailed) {
       status = SyncUiStatus.syncing;
       notifyListeners();
       return;

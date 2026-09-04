@@ -20,10 +20,13 @@ class FakeAuthGateway implements AuthGateway {
   String? lastPhone;
   String? lastEmail;
 
+  String? otpDevCode;
+
   @override
-  Future<void> sendOtp(String phone) async {
+  Future<String?> sendOtp(String phone) async {
     sendOtpCalls += 1;
     lastPhone = phone;
+    return otpDevCode;
   }
 
   @override

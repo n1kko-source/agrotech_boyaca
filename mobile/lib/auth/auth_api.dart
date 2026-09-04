@@ -2,7 +2,7 @@ import 'models.dart';
 import 'session_client.dart';
 
 abstract class AuthGateway {
-  Future<void> sendOtp(String phone);
+  Future<String?> sendOtp(String phone);
 
   Future<IssuedTokens> verifyOtp({
     required String phone,
@@ -41,9 +41,11 @@ class AuthApi implements AuthGateway {
   final SessionClient client;
 
   @override
-  Future<void> sendOtp(String phone) async {
+  Future<String?> sendOtp(String phone) async {
     final response = await client.post('/auth/otp/send', body: {'phone': phone});
     throwIfError(response);
+    final code = decodeJsonObject(response)['devCode'];
+    return code is String && RegExp(r'^\d{6}$').hasMatch(code) ? code : null;
   }
 
   @override

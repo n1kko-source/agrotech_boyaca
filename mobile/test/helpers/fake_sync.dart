@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:typed_data';
 
+import 'package:agrotech_boyaca/sync/cursor.dart';
 import 'package:agrotech_boyaca/sync/local_store.dart';
 import 'package:agrotech_boyaca/sync/models.dart';
 import 'package:agrotech_boyaca/sync/network_status.dart';
@@ -15,6 +17,7 @@ class MemoryLocalStore implements LocalStore {
   final alerts = <String, LocalAlert>{};
   final pending = <PendingOp>[];
   final since = <String, String>{};
+  final photos = <String, List<Uint8List>>{};
 
   @override
   Future<void> enqueuePost(LocalPost post, PendingOp op) async {
@@ -113,7 +116,10 @@ class MemoryLocalStore implements LocalStore {
   }
 
   @override
-  Future<void> deletePost(String id) async => posts.remove(id);
+  Future<void> deletePost(String id) async {
+    posts.remove(id);
+    photos.remove(id);
+  }
 
   @override
   Future<void> deleteProfile(String id) async {
@@ -153,7 +159,70 @@ class MemoryLocalStore implements LocalStore {
   }
 
   @override
-  Future<List<LocalPost>> listPosts() async => posts.values.toList();
+  Future<List<LocalPost>> listPosts() async {
+    final items = posts.values.toList()
+      ..sort((a, b) {
+        final delta = b.createdAt.compareTo(a.createdAt);
+        if (delta != 0) {
+          return delta;
+        }
+        return b.id.compareTo(a.id);
+      });
+    return items;
+  }
+
+  @override
+  Future<PagedPosts> listPostsPage({int limit = 20, String? cursor}) async {
+    final decoded = decodeFeedCursor(cursor);
+    var items = await listPosts();
+    if (decoded != null) {
+      items = items.where((post) {
+        final t = post.createdAt.toUtc().millisecondsSinceEpoch;
+        return t < decoded.t ||
+            (t == decoded.t && post.id.compareTo(decoded.id) < 0);
+      }).toList();
+    }
+    final hasMore = items.length > limit;
+    final slice = hasMore ? items.sublist(0, limit) : items;
+    final last = slice.isEmpty ? null : slice.last;
+    return PagedPosts(
+      items: slice,
+      nextCursor: hasMore && last != null
+          ? encodeFeedCursor(
+              id: last.id,
+              t: last.createdAt.toUtc().millisecondsSinceEpoch,
+            )
+          : null,
+    );
+  }
+
+  @override
+  Future<List<LocalPost>> searchPosts(String query, {int limit = 50}) async {
+    final needle = query.trim().toLowerCase();
+    if (needle.isEmpty) {
+      return const [];
+    }
+    final hits = (await listPosts())
+        .where(
+          (post) =>
+              post.title.toLowerCase().contains(needle) ||
+              post.description.toLowerCase().contains(needle) ||
+              post.category.toLowerCase().contains(needle),
+        )
+        .take(limit)
+        .toList();
+    return hits;
+  }
+
+  @override
+  Future<void> replacePostPhotos(String postId, List<Uint8List> next) async {
+    photos[postId] = List.of(next);
+  }
+
+  @override
+  Future<List<Uint8List>> listPostPhotos(String postId) async {
+    return List.of(photos[postId] ?? const <Uint8List>[]);
+  }
 
   @override
   Future<List<LocalMessage>> listMessages(String conversationId) async {

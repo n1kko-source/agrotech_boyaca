@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'local_store.dart';
 import 'models.dart';
@@ -59,6 +60,65 @@ class SyncEngine {
       ),
     );
     return post;
+  }
+
+  Future<LocalPost> updatePost({
+    required String userId,
+    required String id,
+    required String title,
+    required String description,
+    required String category,
+  }) async {
+    final existing = await _store.findPost(id);
+    if (existing == null || existing.authorId != userId) {
+      throw StateError('Post not found');
+    }
+    final ts = now().toUtc();
+    final post = existing.copyWith(
+      title: title.trim(),
+      description: description.trim(),
+      category: category.trim(),
+      updatedAt: ts,
+    );
+    await _store.enqueuePost(
+      post,
+      _op(
+        userId: userId,
+        entity: SyncEntity.post,
+        entityId: post.id,
+        clientTs: ts,
+        payload: {
+          'title': post.title,
+          'description': post.description,
+          'category': post.category,
+        },
+      ),
+    );
+    return post;
+  }
+
+  Future<void> cachePosts(Iterable<LocalPost> posts) async {
+    for (final post in posts) {
+      await _store.upsertPost(post);
+    }
+  }
+
+  Future<LocalPost?> findPost(String id) => _store.findPost(id);
+
+  Future<PagedPosts> listPostsPage({int limit = 20, String? cursor}) {
+    return _store.listPostsPage(limit: limit, cursor: cursor);
+  }
+
+  Future<List<LocalPost>> searchLocalPosts(String query, {int limit = 50}) {
+    return _store.searchPosts(query, limit: limit);
+  }
+
+  Future<void> savePostPhotos(String postId, List<Uint8List> photos) {
+    return _store.replacePostPhotos(postId, photos);
+  }
+
+  Future<List<Uint8List>> listPostPhotos(String postId) {
+    return _store.listPostPhotos(postId);
   }
 
   Future<LocalProfile> upsertProfile({
@@ -308,11 +368,15 @@ class SyncEngine {
     try {
       await switch (entity) {
         SyncEntity.post => _store.upsertPost(LocalPost.fromJson(record)),
-        SyncEntity.profile => _store.upsertProfile(LocalProfile.fromJson(record)),
-        SyncEntity.conversation =>
-          _store.upsertConversation(LocalConversation.fromJson(record)),
-        SyncEntity.message =>
-          _store.upsertMessage(LocalMessage.fromJson(record)),
+        SyncEntity.profile => _store.upsertProfile(
+          LocalProfile.fromJson(record),
+        ),
+        SyncEntity.conversation => _store.upsertConversation(
+          LocalConversation.fromJson(record),
+        ),
+        SyncEntity.message => _store.upsertMessage(
+          LocalMessage.fromJson(record),
+        ),
         SyncEntity.alerta => _store.upsertAlert(LocalAlert.fromJson(record)),
         SyncEntity.precio => _store.upsertPrice(LocalPrice.fromJson(record)),
       };

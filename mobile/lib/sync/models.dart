@@ -84,6 +84,30 @@ class LocalPost {
       'updatedAt': row['updated_at'],
     });
   }
+
+  LocalPost copyWith({
+    String? title,
+    String? description,
+    String? category,
+    DateTime? updatedAt,
+  }) {
+    return LocalPost(
+      id: id,
+      authorId: authorId,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      category: category ?? this.category,
+      createdAt: createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+}
+
+class PagedPosts {
+  const PagedPosts({required this.items, this.nextCursor});
+
+  final List<LocalPost> items;
+  final String? nextCursor;
 }
 
 class LocalProfile {
@@ -416,7 +440,10 @@ class SyncDelta {
     return SyncDelta(
       posts: parseList(json['posts'], LocalPost.fromJson),
       profile: _profile(json['profile']),
-      conversations: parseList(json['conversations'], LocalConversation.fromJson),
+      conversations: parseList(
+        json['conversations'],
+        LocalConversation.fromJson,
+      ),
       messages: parseList(json['messages'], LocalMessage.fromJson),
       alertas: parseList(
         json['alertas'],
@@ -526,10 +553,7 @@ Map<String, dynamic>? asJsonMap(Object? raw) {
   return null;
 }
 
-List<T> parseList<T>(
-  Object? raw,
-  T Function(Map<String, dynamic> json) parse,
-) {
+List<T> parseList<T>(Object? raw, T Function(Map<String, dynamic> json) parse) {
   if (raw is! List) {
     return <T>[];
   }
